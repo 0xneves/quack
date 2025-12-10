@@ -20,7 +20,6 @@ const decryptedElements = new Map<HTMLElement, string>();
 let decryptedCount = 0;
 let warningShown = false;
 let inlineCardEl: HTMLElement | null = null;
-let inlineHoverTimer: ReturnType<typeof setTimeout> | null = null;
 let inlineHideTimer: ReturnType<typeof setTimeout> | null = null;
 let inlineEncrypted: string | null = null;
 let activeEditable: HTMLElement | null = null;
@@ -32,6 +31,7 @@ let inlineItems: Array<{
   matchId: string;
 }> = [];
 let lastInlineSignature: string | null = null;
+let inlineHovering = false;
 
 /**
  * Check if an element lives inside an editable context
@@ -730,8 +730,18 @@ function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string;
     u.style.top = `${item.rect.bottom - 2}px`;
     u.style.width = `${item.rect.width}px`;
     u.style.pointerEvents = 'auto';
-    u.addEventListener('mouseenter', () => showInlineCardFor(item, u));
-    u.addEventListener('mouseleave', scheduleInlineHide);
+    u.addEventListener('mouseenter', () => {
+      inlineHovering = true;
+      if (inlineHideTimer) {
+        clearTimeout(inlineHideTimer);
+        inlineHideTimer = null;
+      }
+      showInlineCardFor(item, u);
+    });
+    u.addEventListener('mouseleave', () => {
+      inlineHovering = false;
+      scheduleInlineHide();
+    });
     document.body.appendChild(u);
     inlineItems.push({ underline: u, rect: item.rect, encrypted: item.encrypted, matchId: item.matchId });
     // keep underline dark after initial sweep
@@ -740,14 +750,11 @@ function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string;
 }
 
 function cleanupInlineHighlight() {
-  if (inlineHoverTimer) {
-    clearTimeout(inlineHoverTimer);
-    inlineHoverTimer = null;
-  }
   if (inlineHideTimer) {
     clearTimeout(inlineHideTimer);
     inlineHideTimer = null;
   }
+  inlineHovering = false;
   inlineItems.forEach(i => i.underline.remove());
   inlineItems = [];
   inlineCardEl?.remove();
@@ -759,10 +766,10 @@ function cleanupInlineHighlight() {
 function scheduleInlineHide() {
   if (inlineHideTimer) clearTimeout(inlineHideTimer);
   inlineHideTimer = setTimeout(() => {
-    if (!inlineCardEl) {
+    if (!inlineHovering) {
       cleanupInlineHighlight();
     }
-  }, 180);
+  }, 2000);
 }
 
 function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: string }, underlineEl: HTMLElement) {
@@ -770,6 +777,7 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
     clearTimeout(inlineHideTimer);
     inlineHideTimer = null;
   }
+  inlineHovering = true;
   inlineEncrypted = item.encrypted;
   underlineEl.classList.add('hovered');
 
@@ -786,6 +794,7 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
   `;
 
   inlineCardEl.addEventListener('mouseenter', () => {
+    inlineHovering = true;
     if (inlineHideTimer) {
       clearTimeout(inlineHideTimer);
       inlineHideTimer = null;
@@ -795,7 +804,8 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
 
   inlineCardEl.addEventListener('mouseleave', () => {
     underlineEl.classList.remove('hovered');
-    cleanupInlineHighlight();
+    inlineHovering = false;
+    scheduleInlineHide();
   });
 
   document.body.appendChild(inlineCardEl);
