@@ -6,8 +6,9 @@ import SetupScreen from './screens/SetupScreen';
 import LoginScreen from './screens/LoginScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import SecureComposeScreen from './screens/SecureComposeScreen';
+import ManualDecryptScreen from './screens/ManualDecryptScreen';
 
-type Screen = 'loading' | 'setup' | 'login' | 'dashboard' | 'compose';
+type Screen = 'loading' | 'setup' | 'login' | 'dashboard' | 'compose' | 'decrypt';
 
 function App() {
   const [screen, setScreen] = useState<Screen>('loading');
@@ -103,6 +104,10 @@ function App() {
     setScreen('compose');
   }
 
+  function handleDecrypt() {
+    setScreen('decrypt');
+  }
+
   function handleBackToDashboard() {
     setScreen('dashboard');
   }
@@ -144,6 +149,15 @@ function App() {
     );
   }
 
+  if (screen === 'decrypt' && vaultData) {
+    return (
+      <ManualDecryptScreen
+        vaultData={vaultData}
+        onBack={handleBackToDashboard}
+      />
+    );
+  }
+
   if (screen === 'dashboard' && vaultData) {
     return (
       <DashboardScreen
@@ -151,6 +165,7 @@ function App() {
         onVaultUpdate={handleVaultUpdate}
         onLock={handleLock}
         onCompose={handleCompose}
+        onDecrypt={handleDecrypt}
       />
     );
   }

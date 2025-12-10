@@ -8,9 +8,10 @@ interface DashboardScreenProps {
   onVaultUpdate: (vault: VaultData) => void;
   onLock: () => void;
   onCompose: () => void;
+  onDecrypt: () => void;
 }
 
-function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose }: DashboardScreenProps) {
+function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecrypt }: DashboardScreenProps) {
   const [showNewKeyModal, setShowNewKeyModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [selectedKey, setSelectedKey] = useState<QuackKey | null>(null);
@@ -153,10 +154,17 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose }: Dashbo
         <div className="flex gap-2">
           <button
             onClick={onCompose}
-            className="bg-quack-500 hover:bg-quack-600 text-white px-4 py-2 rounded-lg font-medium transition duration-200"
-            title="Compose secure message"
+            className="bg-quack-500 hover:bg-quack-600 text-white px-3 py-2 rounded-lg font-medium text-sm transition duration-200"
+            title="Encrypt a message"
           >
-            ✍️ Compose
+            Encrypt
+          </button>
+          <button
+            onClick={onDecrypt}
+            className="bg-white border border-gray-300 hover:border-quack-300 text-gray-800 px-3 py-2 rounded-lg font-medium text-sm transition duration-200"
+            title="Decrypt a message"
+          >
+            Decrypt
           </button>
           <button
             onClick={onLock}

@@ -21,6 +21,16 @@ let decryptedCount = 0;
 let warningShown = false;
 
 /**
+ * Check if an element lives inside an editable context
+ */
+function isWithinEditable(element: HTMLElement): boolean {
+  if (isEditableElement(element)) return true;
+  return Boolean(
+    element.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')
+  );
+}
+
+/**
  * Initialize content script
  */
 function init() {
@@ -290,7 +300,7 @@ function scanElement(element: HTMLElement, observer: IntersectionObserver) {
     const text = node.textContent || '';
     if (text.includes(QUACK_PREFIX)) {
       const parent = node.parentElement;
-      if (parent && !processedElements.has(parent)) {
+      if (parent && !processedElements.has(parent) && !isWithinEditable(parent)) {
         observer.observe(parent);
       }
     }
@@ -302,6 +312,11 @@ function scanElement(element: HTMLElement, observer: IntersectionObserver) {
  */
 async function processElement(element: HTMLElement) {
   processedElements.add(element);
+
+  // Never auto-decrypt inside editable contexts
+  if (isWithinEditable(element)) {
+    return;
+  }
   
   // Check if we've hit the auto-decrypt limit
   if (decryptedCount >= MAX_AUTO_DECRYPTS) {
@@ -404,6 +419,8 @@ function replaceWithDecrypted(
  * Add manual decrypt button
  */
 function addManualDecryptButton(element: HTMLElement) {
+  if (isWithinEditable(element)) return;
+
   // Determine target rect
   const rect = element.getBoundingClientRect();
   const button = document.createElement('button');
