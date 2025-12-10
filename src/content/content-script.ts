@@ -19,6 +19,19 @@ const processedElements = new WeakSet<HTMLElement>();
 const decryptedElements = new Map<HTMLElement, string>();
 let decryptedCount = 0;
 let warningShown = false;
+let inlineCardEl: HTMLElement | null = null;
+let inlineHoverTimer: ReturnType<typeof setTimeout> | null = null;
+let inlineHideTimer: ReturnType<typeof setTimeout> | null = null;
+let inlineEncrypted: string | null = null;
+let activeEditable: HTMLElement | null = null;
+let activeObserver: MutationObserver | null = null;
+let inlineItems: Array<{
+  underline: HTMLElement;
+  rect: DOMRect;
+  encrypted: string;
+  matchId: string;
+}> = [];
+let lastInlineSignature: string | null = null;
 
 /**
  * Check if an element lives inside an editable context
@@ -36,6 +49,7 @@ function isWithinEditable(element: HTMLElement): boolean {
 function init() {
   setupInputDetection();
   setupDOMScanning();
+  injectSelectionStyles();
   setupSelectionMenu();
   
   console.log('✅ Quack content script initialized');
@@ -45,27 +59,75 @@ function init() {
  * Setup detection for "Quack://" trigger in input fields
  */
 function setupInputDetection() {
-  const handleInput = (event: Event) => {
+  const handleUpdate = (event: Event) => {
     const target = event.target as HTMLElement;
-    
-    if (!isEditableElement(target)) return;
-    
-    const value = getElementValue(target);
+    const editable = getEditableRoot(target);
+    if (!editable) return;
+    setActiveEditable(editable);
+    const value = getElementValue(editable);
 
     // Inline encryption trigger: __plaintext__
     const underlineMatch = value.match(/__(.+?)__/);
     if (underlineMatch) {
       const plaintext = underlineMatch[1];
-      showInlineEncryptPrompt(target, plaintext, underlineMatch[0]);
+      showInlineEncryptPrompt(editable, plaintext, underlineMatch[0]);
     }
 
     if (value.endsWith('Quack://')) {
-      showSecureComposePrompt(target);
+      showSecureComposePrompt(editable);
     }
+
+    updateInlineHighlight(editable, value);
   };
 
-  const debouncedHandler = debounce(handleInput, 300);
+  const debouncedHandler = debounce(handleUpdate, 200);
   document.addEventListener('input', debouncedHandler as unknown as EventListener);
+  document.addEventListener('keyup', debouncedHandler as unknown as EventListener);
+  document.addEventListener('paste', debouncedHandler as unknown as EventListener);
+
+  document.addEventListener('focusin', (e) => {
+    const editable = getEditableRoot(e.target as HTMLElement);
+    if (editable) {
+      setActiveEditable(editable);
+      updateInlineHighlight(editable, getElementValue(editable));
+    }
+  });
+
+  document.addEventListener('focusout', () => {
+    setActiveEditable(null);
+    cleanupInlineHighlight();
+  });
+
+}
+
+function getEditableRoot(el: HTMLElement | null): HTMLElement | null {
+  let node: HTMLElement | null = el;
+  while (node && node !== document.body) {
+    if (isEditableElement(node)) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function setActiveEditable(el: HTMLElement | null) {
+  if (activeEditable === el) return;
+  activeEditable = el;
+
+  if (activeObserver) {
+    activeObserver.disconnect();
+    activeObserver = null;
+  }
+
+  if (activeEditable) {
+    activeObserver = new MutationObserver(() => {
+      updateInlineHighlight(activeEditable as HTMLElement, getElementValue(activeEditable as HTMLElement));
+    });
+    activeObserver.observe(activeEditable, {
+      characterData: true,
+      subtree: true,
+      childList: true,
+    });
+  }
 }
 
 /**
@@ -544,61 +606,61 @@ function showExcessiveQuacksWarning() {
  * Setup selection-based decryption
  */
 function setupSelectionMenu() {
-  let selectionMenu: HTMLElement | null = null;
+  let underlineEl: HTMLElement | null = null;
+  let cardEl: HTMLElement | null = null;
+  let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+  
+  const cleanup = () => {
+    if (hoverTimer) {
+      clearTimeout(hoverTimer);
+      hoverTimer = null;
+    }
+    underlineEl?.remove();
+    cardEl?.remove();
+    underlineEl = null;
+    cardEl = null;
+  };
   
   document.addEventListener('mouseup', () => {
-    // Remove existing menu
-    if (selectionMenu) {
-      selectionMenu.remove();
-      selectionMenu = null;
-    }
+    cleanup();
     
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) return;
     
     const selectedText = selection.toString();
-    if (!selectedText.includes(QUACK_PREFIX)) return;
+    const match = selectedText.match(new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`));
+    if (!match) return;
     
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return;
     
-    selectionMenu = document.createElement('div');
-    selectionMenu.className = 'quack-selection-menu';
-    selectionMenu.innerHTML = `
-      <div style="
-        position: fixed;
-        left: ${rect.left}px;
-        top: ${rect.bottom + 5}px;
-        background: #1f2937;
-        color: white;
-        padding: 4px;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        z-index: 999999;
-        font-family: system-ui;
-        font-size: 14px;
-      ">
-        <button class="quack-decrypt-selection" style="
-          background: #ea711a;
-          color: white;
-          border: none;
-          padding: 8px 16px;
-          border-radius: 4px;
-          cursor: pointer;
-          width: 100%;
-          font-weight: 600;
-        ">🔓 Decrypt with Quack</button>
-      </div>
+    // Create animated underline
+    underlineEl = document.createElement('div');
+    underlineEl.className = 'quack-underline';
+    underlineEl.style.left = `${rect.left}px`;
+    underlineEl.style.top = `${rect.bottom - 2}px`;
+    underlineEl.style.width = `${rect.width}px`;
+    document.body.appendChild(underlineEl);
+    // Keep underline dark while modal is open after initial sweep
+    hoverTimer = setTimeout(() => {
+      underlineEl?.classList.add('hovered');
+    }, 200);
+    
+    // Create action card
+    cardEl = document.createElement('div');
+    cardEl.className = 'quack-selection-card';
+    cardEl.innerHTML = `
+      <button class="quack-card-btn quack-card-primary">Decrypt with Quack</button>
+      <button class="quack-card-btn quack-card-secondary">Dismiss</button>
     `;
+    document.body.appendChild(cardEl);
     
-    document.body.appendChild(selectionMenu);
+    positionCard(rect, cardEl);
     
-    selectionMenu.querySelector('.quack-decrypt-selection')?.addEventListener('click', async () => {
-      const match = selectedText.match(new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`));
-      if (!match) return;
-      
+    // Button handlers
+    cardEl.querySelector('.quack-card-primary')?.addEventListener('click', async () => {
       const encrypted = match[0];
-      
       try {
         const response = await sendMessageSafe({
           type: 'DECRYPT_MESSAGE',
@@ -614,11 +676,301 @@ function setupSelectionMenu() {
         console.error('Selection decryption error:', error);
         showNotification('❌ Decryption failed');
       }
-      
-      selectionMenu?.remove();
-      selectionMenu = null;
+      cleanup();
     });
+    
+    cardEl.querySelector('.quack-card-secondary')?.addEventListener('click', cleanup);
   });
+}
+
+/**
+ * Inline highlight for Quack ciphers inside editable fields (no selection needed)
+ */
+function updateInlineHighlight(target: HTMLElement, value: string) {
+  if (!document.body.contains(target)) {
+    cleanupInlineHighlight();
+    return;
+  }
+
+  const matches = collectQuackMatches(value);
+  if (matches.length === 0) {
+    cleanupInlineHighlight();
+    return;
+  }
+
+  const rects = getQuackRects(target, matches);
+  const signature = buildInlineSignature(value, rects);
+  if (signature === lastInlineSignature) return;
+  lastInlineSignature = signature;
+  renderInlineUnderlines(rects);
+}
+
+function collectQuackMatches(value: string): string[] {
+  const regex = new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`, 'g');
+  const found: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(value)) !== null) {
+    found.push(m[0]);
+  }
+  return found;
+}
+
+function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string; matchId: string }>) {
+  // Remove old underlines/cards
+  inlineItems.forEach(i => i.underline.remove());
+  inlineItems = [];
+  inlineCardEl?.remove();
+  inlineCardEl = null;
+  inlineEncrypted = null;
+
+  items.forEach(item => {
+    const u = document.createElement('div');
+    u.className = 'quack-underline';
+    u.style.left = `${item.rect.left}px`;
+    u.style.top = `${item.rect.bottom - 2}px`;
+    u.style.width = `${item.rect.width}px`;
+    u.style.pointerEvents = 'auto';
+    u.addEventListener('mouseenter', () => showInlineCardFor(item, u));
+    u.addEventListener('mouseleave', scheduleInlineHide);
+    document.body.appendChild(u);
+    inlineItems.push({ underline: u, rect: item.rect, encrypted: item.encrypted, matchId: item.matchId });
+    // keep underline dark after initial sweep
+    setTimeout(() => u.classList.add('hovered'), 200);
+  });
+}
+
+function cleanupInlineHighlight() {
+  if (inlineHoverTimer) {
+    clearTimeout(inlineHoverTimer);
+    inlineHoverTimer = null;
+  }
+  if (inlineHideTimer) {
+    clearTimeout(inlineHideTimer);
+    inlineHideTimer = null;
+  }
+  inlineItems.forEach(i => i.underline.remove());
+  inlineItems = [];
+  inlineCardEl?.remove();
+  inlineCardEl = null;
+  inlineEncrypted = null;
+  lastInlineSignature = null;
+}
+
+function scheduleInlineHide() {
+  if (inlineHideTimer) clearTimeout(inlineHideTimer);
+  inlineHideTimer = setTimeout(() => {
+    if (!inlineCardEl) {
+      cleanupInlineHighlight();
+    }
+  }, 180);
+}
+
+function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: string }, underlineEl: HTMLElement) {
+  if (inlineHideTimer) {
+    clearTimeout(inlineHideTimer);
+    inlineHideTimer = null;
+  }
+  inlineEncrypted = item.encrypted;
+  underlineEl.classList.add('hovered');
+
+  if (inlineCardEl) {
+    positionCard(getAnchorRectForMatch(item.matchId, item.rect), inlineCardEl);
+    return;
+  }
+
+  inlineCardEl = document.createElement('div');
+  inlineCardEl.className = 'quack-selection-card';
+  inlineCardEl.innerHTML = `
+    <button class="quack-card-btn quack-card-primary">Decrypt with Quack</button>
+    <button class="quack-card-btn quack-card-secondary">Dismiss</button>
+  `;
+
+  inlineCardEl.addEventListener('mouseenter', () => {
+    if (inlineHideTimer) {
+      clearTimeout(inlineHideTimer);
+      inlineHideTimer = null;
+    }
+    underlineEl.classList.add('hovered');
+  });
+
+  inlineCardEl.addEventListener('mouseleave', () => {
+    underlineEl.classList.remove('hovered');
+    cleanupInlineHighlight();
+  });
+
+  document.body.appendChild(inlineCardEl);
+  positionCard(getAnchorRectForMatch(item.matchId, item.rect), inlineCardEl);
+
+  inlineCardEl.querySelector('.quack-card-primary')?.addEventListener('click', async () => {
+    if (!inlineEncrypted) return;
+    try {
+      const response = await sendMessageSafe({
+        type: 'DECRYPT_MESSAGE',
+        payload: { ciphertext: inlineEncrypted },
+      });
+      if (response.plaintext) {
+        showNotification(`✅ Decrypted: ${response.plaintext.substring(0, 50)}...`);
+      } else {
+        showNotification('❌ Could not decrypt message');
+      }
+    } catch (error) {
+      console.error('Inline decryption error:', error);
+      showNotification('❌ Decryption failed');
+    }
+    cleanupInlineHighlight();
+  });
+
+  inlineCardEl.querySelector('.quack-card-secondary')?.addEventListener('click', () => {
+    cleanupInlineHighlight();
+  });
+}
+
+function getAnchorRectForMatch(matchId: string, fallback: DOMRect): DOMRect {
+  const matches = inlineItems.filter(i => i.matchId === matchId);
+  if (matches.length === 0) return fallback;
+  // Choose the rect with the greatest bottom (lowest on screen) for this occurrence
+  const target = matches.reduce((acc, cur) => (cur.rect.bottom > acc.rect.bottom ? cur : acc), matches[0]);
+  return target.rect;
+}
+
+function getQuackRects(element: HTMLElement, matches: string[]): Array<{ rect: DOMRect; encrypted: string; matchId: string }> {
+  if ((element as HTMLElement).isContentEditable) {
+    return getRectsFromContentEditable(element, matches);
+  }
+  // Fallback for inputs/textareas: use whole element
+  const rect = element.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return [];
+  return matches.map((m, idx) => ({ rect, encrypted: m, matchId: `match-${idx}` }));
+}
+
+function getRectsFromContentEditable(element: HTMLElement, _matches: string[]): Array<{ rect: DOMRect; encrypted: string; matchId: string }> {
+  const items: Array<{ rect: DOMRect; encrypted: string; matchId: string }> = [];
+  const regex = new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`, 'g');
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let matchCounter = 0;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const text = node.textContent || '';
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, end);
+      const rects = Array.from(range.getClientRects());
+      const matchId = `match-${matchCounter++}`;
+      rects.forEach(r => {
+        if (r.width > 0 && r.height > 0) {
+          items.push({ rect: r, encrypted: m![0], matchId });
+        }
+      });
+      range.detach();
+    }
+  }
+  return items;
+}
+
+function buildInlineSignature(value: string, rects: Array<{ rect: DOMRect; encrypted: string; matchId: string }>): string {
+  const rectSig = rects
+    .map(r => `${r.matchId}:${r.encrypted}:${Math.round(r.rect.left)}:${Math.round(r.rect.top)}:${Math.round(r.rect.width)}:${Math.round(r.rect.height)}`)
+    .join('|');
+  return `${value}|${rectSig}`;
+}
+
+function injectSelectionStyles() {
+  if (document.querySelector('#quack-selection-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'quack-selection-styles';
+  style.textContent = `
+    @keyframes quack-underline-sweep {
+      from { transform: scaleX(0); opacity: 0.8; }
+      to { transform: scaleX(1); opacity: 1; }
+    }
+    .quack-underline {
+      position: fixed;
+      height: 2px;
+      background: linear-gradient(90deg, #fca55d 0%, #f97316 100%);
+      transform-origin: left center;
+      animation: quack-underline-sweep 180ms ease-out forwards;
+      z-index: 999999;
+      pointer-events: none;
+      opacity: 1;
+    }
+    .quack-underline.hovered {
+      background: linear-gradient(90deg, #f97316 0%, #ea580c 100%);
+    }
+    .quack-selection-card {
+      position: fixed;
+      background: #1f2937;
+      color: white;
+      border-radius: 10px;
+      padding: 10px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+      z-index: 1000000;
+      width: 180px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    .quack-card-btn {
+      border: none;
+      border-radius: 6px;
+      padding: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background-color 120ms ease, color 120ms ease;
+    }
+    .quack-card-primary {
+      background: #f97316;
+      color: white;
+    }
+    .quack-card-primary:hover {
+      background: #ea580c;
+    }
+    .quack-card-secondary {
+      background: #374151;
+      color: #e5e7eb;
+    }
+    .quack-card-secondary:hover {
+      background: #4b5563;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function positionCard(anchorRect: DOMRect, card: HTMLElement) {
+  const margin = 6;
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+  
+  // Default position: below anchor
+  let top = anchorRect.bottom + margin;
+  let left = anchorRect.left;
+  
+  // Measure card
+  card.style.visibility = 'hidden';
+  card.style.left = '0px';
+  card.style.top = '0px';
+  const rect = card.getBoundingClientRect();
+  const cardWidth = rect.width;
+  const cardHeight = rect.height;
+  
+  // Flip above if off-screen
+  if (top + cardHeight > viewportH) {
+    top = anchorRect.top - cardHeight - margin;
+  }
+  
+  // Clamp horizontally
+  const maxLeft = viewportW - cardWidth - margin;
+  if (left > maxLeft) left = maxLeft;
+  if (left < margin) left = margin;
+  
+  card.style.left = `${left}px`;
+  card.style.top = `${top}px`;
+  card.style.visibility = 'visible';
 }
 
 /**
