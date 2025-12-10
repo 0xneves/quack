@@ -32,6 +32,13 @@ let inlineItems: Array<{
 }> = [];
 let lastInlineSignature: string | null = null;
 let inlineHovering = false;
+function removeInlineCardOnly() {
+  if (inlineCardEl) {
+    inlineCardEl.remove();
+    inlineCardEl = null;
+  }
+  inlineEncrypted = null;
+}
 
 /**
  * Check if an element lives inside an editable context
@@ -766,10 +773,10 @@ function cleanupInlineHighlight() {
 function scheduleInlineHide() {
   if (inlineHideTimer) clearTimeout(inlineHideTimer);
   inlineHideTimer = setTimeout(() => {
-    if (!inlineHovering) {
-      cleanupInlineHighlight();
-    }
-  }, 2000);
+    inlineHideTimer = null;
+    if (inlineHovering) return;
+    removeInlineCardOnly();
+  }, 1300);
 }
 
 function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: string }, underlineEl: HTMLElement) {
