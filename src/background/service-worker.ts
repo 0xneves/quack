@@ -18,9 +18,6 @@ import { importAESKey } from '@/crypto/aes';
 let cachedVaultData: VaultData | null = null;
 let cachedMasterPassword: string | null = null;
 
-// Blacklist for recently encrypted messages (prevents auto-decrypt)
-const encryptedMessageBlacklist = new Set<string>();
-
 console.log('🦆 Quack service worker loaded');
 
 /**
@@ -56,15 +53,13 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
     case 'DECRYPT_MESSAGE':
       return await handleDecryptMessage(message.payload as { ciphertext: string });
       
+    case 'CACHE_VAULT':
+      return await handleCacheVault(message.payload as { masterPassword: string });
+    
+    case 'GET_VAULT_DATA':
+      return handleGetVaultData();
+      
     case 'ENCRYPTED_MESSAGE_READY':
-      // Handle blacklist notification from compose
-      if (message.payload && typeof message.payload === 'object' && 'encrypted' in message.payload) {
-        const encrypted = (message.payload as { encrypted: string }).encrypted;
-        encryptedMessageBlacklist.add(encrypted);
-        setTimeout(() => {
-          encryptedMessageBlacklist.delete(encrypted);
-        }, 60 * 60 * 1000);
-      }
       return { success: true };
       
     default:
@@ -116,15 +111,7 @@ async function handleEncryptMessage(payload: { plaintext: string; keyId: string 
   
   const aesKey = await importAESKey(key.aesKeyMaterial);
   const encrypted = await encryptMessage(payload.plaintext, aesKey);
-  
-  // Add to blacklist
-  encryptedMessageBlacklist.add(encrypted);
-  
-  // Clear blacklist after 1 hour
-  setTimeout(() => {
-    encryptedMessageBlacklist.delete(encrypted);
-  }, 60 * 60 * 1000);
-  
+
   return { encrypted };
 }
 
@@ -133,11 +120,6 @@ async function handleEncryptMessage(payload: { plaintext: string; keyId: string 
  */
 async function handleDecryptMessage(payload: { ciphertext: string }) {
   const { ciphertext } = payload;
-  
-  // Check blacklist
-  if (encryptedMessageBlacklist.has(ciphertext)) {
-    return { plaintext: null, blacklisted: true };
-  }
   
   if (!cachedVaultData) {
     return { plaintext: null, error: 'Vault is locked' };
@@ -155,6 +137,29 @@ async function handleDecryptMessage(payload: { ciphertext: string }) {
   }
   
   return { plaintext: null, error: 'No key could decrypt this message' };
+}
+
+/**
+ * Return cached vault data (names/ids) for popup without re-login
+ */
+function handleGetVaultData() {
+  if (!cachedVaultData) {
+    return { vault: null };
+  }
+  return { vault: cachedVaultData };
+}
+
+/**
+ * Cache vault data in memory (from popup) to avoid locked state in content scripts
+ */
+async function handleCacheVault(payload: { masterPassword: string }) {
+  const { masterPassword } = payload;
+  if (!masterPassword) {
+    return { cached: false, error: 'Missing master password' };
+  }
+
+  const ok = await cacheVault(masterPassword);
+  return { cached: ok };
 }
 
 /**

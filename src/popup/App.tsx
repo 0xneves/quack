@@ -30,11 +30,19 @@ function App() {
     // Check if already unlocked
     const session = await getSession();
     if (session.unlocked) {
-      // Try to restore session (note: password not persisted)
-      setScreen('login');
-    } else {
-      setScreen('login');
+      // Try to pull cached vault data from background (no password prompt)
+      try {
+        const resp = await chrome.runtime.sendMessage({ type: 'GET_VAULT_DATA' });
+        if (resp?.vault) {
+          setVaultData(resp.vault as VaultData);
+          setScreen('dashboard');
+          return;
+        }
+      } catch (e) {
+        console.warn('Could not retrieve cached vault, fallback to login', e);
+      }
     }
+    setScreen('login');
   }
 
   async function handleSetup(password: string) {
@@ -43,6 +51,7 @@ function App() {
       setMasterPassword(password);
       setVaultData({ keys: [] });
       await markVaultUnlocked();
+      await cacheVaultInBackground({ keys: [] }, password);
       setScreen('dashboard');
     } catch (error) {
       console.error('Setup failed:', error);
@@ -73,10 +82,14 @@ function App() {
   }
 
   async function cacheVaultInBackground(_data: VaultData, _password: string) {
-    // Send vault data to background script for caching
-    // This allows content script to decrypt without constant communication
-    // TODO: Implement secure message passing to background
-    console.log('Caching vault in background script');
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'CACHE_VAULT',
+        payload: { masterPassword: _password },
+      });
+    } catch (err) {
+      console.error('Failed to cache vault in background', err);
+    }
   }
 
   async function handleLock() {

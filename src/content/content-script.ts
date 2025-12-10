@@ -10,7 +10,7 @@
  */
 
 import { QUACK_PREFIX, MAX_AUTO_DECRYPTS } from '@/utils/constants';
-import { debounce, isEditableElement, getElementValue } from '@/utils/helpers';
+import { debounce, isEditableElement, getElementValue, setElementValue } from '@/utils/helpers';
 
 console.log('🦆 Quack content script loaded');
 
@@ -41,6 +41,14 @@ function setupInputDetection() {
     if (!isEditableElement(target)) return;
     
     const value = getElementValue(target);
+
+    // Inline encryption trigger: __plaintext__
+    const underlineMatch = value.match(/__(.+?)__/);
+    if (underlineMatch) {
+      const plaintext = underlineMatch[1];
+      showInlineEncryptPrompt(target, plaintext, underlineMatch[0]);
+    }
+
     if (value.endsWith('Quack://')) {
       showSecureComposePrompt(target);
     }
@@ -116,6 +124,96 @@ function showSecureComposePrompt(inputElement: HTMLElement) {
   
   // Auto-dismiss after 10 seconds
   setTimeout(() => prompt.remove(), 10000);
+}
+
+/**
+ * Inline encrypt prompt for __text__
+ */
+function showInlineEncryptPrompt(inputElement: HTMLElement, plaintext: string, token: string) {
+  // Remove existing prompt if any
+  const existing = document.querySelector('.quack-inline-encrypt');
+  if (existing) existing.remove();
+
+  const rect = inputElement.getBoundingClientRect();
+  const prompt = document.createElement('div');
+  prompt.className = 'quack-inline-encrypt';
+  prompt.innerHTML = `
+    <div style="
+      position: fixed;
+      left: ${rect.left}px;
+      top: ${rect.bottom + 5}px;
+      background: #1f2937;
+      color: white;
+      padding: 8px 12px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      z-index: 999999;
+      font-family: system-ui;
+      font-size: 13px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    ">
+      <span>Encrypt detected text?</span>
+      <button class="quack-inline-encrypt-btn" style="
+        background: #ea711a;
+        color: white;
+        border: none;
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 600;
+      ">Encrypt</button>
+      <button class="quack-inline-encrypt-cancel" style="
+        background: transparent;
+        color: white;
+        border: 1px solid #fff;
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      ">Dismiss</button>
+    </div>
+  `;
+
+  document.body.appendChild(prompt);
+
+  prompt.querySelector('.quack-inline-encrypt-btn')?.addEventListener('click', async () => {
+    try {
+      // get keys
+      const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
+      const firstKey = keyResponse.keys?.[0];
+      if (!firstKey) {
+        showNotification('❌ No keys available. Create a key first.');
+        prompt.remove();
+        return;
+      }
+
+      const encryptedResp = await sendMessageSafe({
+        type: 'ENCRYPT_MESSAGE',
+        payload: { plaintext, keyId: firstKey.id },
+      });
+
+      if (encryptedResp?.encrypted) {
+        const current = getElementValue(inputElement);
+        const replaced = current.replace(token, encryptedResp.encrypted);
+        setElementValue(inputElement, replaced);
+        showNotification('✅ Encrypted and replaced');
+      } else {
+        showNotification('❌ Encryption failed');
+      }
+    } catch (err) {
+      console.error('Inline encryption error', err);
+      showNotification('❌ Encryption failed');
+    } finally {
+      prompt.remove();
+    }
+  });
+
+  prompt.querySelector('.quack-inline-encrypt-cancel')?.addEventListener('click', () => {
+    prompt.remove();
+  });
+
+  setTimeout(() => prompt.remove(), 8000);
 }
 
 /**
@@ -226,7 +324,7 @@ async function processElement(element: HTMLElement) {
   
   // Attempt decryption
   try {
-    const response = await chrome.runtime.sendMessage({
+    const response = await sendMessageSafe({
       type: 'DECRYPT_MESSAGE',
       payload: { ciphertext: encrypted },
     });
@@ -257,7 +355,16 @@ function replaceWithDecrypted(
   plaintext: string,
   keyName: string
 ) {
-  // Find and replace text node
+  // If element is editable (input/textarea/contenteditable), update its value directly
+  if (isEditableElement(element)) {
+    const current = getElementValue(element);
+    const newVal = current.replace(encrypted, plaintext);
+    setElementValue(element, newVal);
+    decryptedElements.set(element, plaintext);
+    return;
+  }
+
+  // For non-editable text, replace the text node and add indicator
   const walker = document.createTreeWalker(
     element,
     NodeFilter.SHOW_TEXT,
@@ -270,7 +377,6 @@ function replaceWithDecrypted(
     if (text.includes(encrypted)) {
       const newText = text.replace(encrypted, plaintext);
       
-      // Create wrapper with indicator
       const wrapper = document.createElement('span');
       wrapper.textContent = newText;
       wrapper.style.position = 'relative';
@@ -298,39 +404,53 @@ function replaceWithDecrypted(
  * Add manual decrypt button
  */
 function addManualDecryptButton(element: HTMLElement) {
+  // Determine target rect
+  const rect = element.getBoundingClientRect();
   const button = document.createElement('button');
   button.textContent = '🔒 Decrypt';
   button.className = 'quack-manual-decrypt-btn';
   button.style.cssText = `
+    position: fixed;
+    left: ${rect.left}px;
+    top: ${rect.bottom + 6}px;
     background: #ea711a;
     color: white;
     border: none;
-    padding: 4px 12px;
-    border-radius: 4px;
+    padding: 6px 14px;
+    border-radius: 6px;
     cursor: pointer;
     font-family: system-ui;
     font-size: 12px;
-    margin-left: 8px;
+    z-index: 999999;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    pointer-events: auto;
   `;
   
   button.onclick = async () => {
+    console.log('🦆 decrypt button clicked');
     const text = element.textContent || '';
     const match = text.match(new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`));
     
-    if (!match) return;
+    if (!match) {
+      showNotification('❌ No encrypted text found');
+      button.remove();
+      return;
+    }
     
     const encrypted = match[0];
     
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'DECRYPT_MESSAGE',
-        payload: { ciphertext: encrypted },
-      });
+      console.log('🦆 sending decrypt request', encrypted);
+    const response = await sendMessageSafe({
+      type: 'DECRYPT_MESSAGE',
+      payload: { ciphertext: encrypted },
+    });
       
       if (response.plaintext) {
         replaceWithDecrypted(element, encrypted, response.plaintext, response.keyName);
         button.remove();
       } else {
+        console.log('🦆 decrypt failed response', response);
         showNotification('❌ Could not decrypt message');
       }
     } catch (error) {
@@ -339,7 +459,8 @@ function addManualDecryptButton(element: HTMLElement) {
     }
   };
   
-  element.appendChild(button);
+  document.body.appendChild(button);
+  setTimeout(() => button.remove(), 12000);
 }
 
 /**
@@ -462,7 +583,7 @@ function setupSelectionMenu() {
       const encrypted = match[0];
       
       try {
-        const response = await chrome.runtime.sendMessage({
+        const response = await sendMessageSafe({
           type: 'DECRYPT_MESSAGE',
           payload: { ciphertext: encrypted },
         });
@@ -512,6 +633,24 @@ function showNotification(message: string) {
     notification.style.opacity = '0';
     setTimeout(() => notification.remove(), 300);
   }, 3000);
+}
+
+/**
+ * Safe wrapper for chrome.runtime.sendMessage to handle "Extension context invalidated"
+ */
+async function sendMessageSafe<T = any>(msg: any): Promise<T> {
+  try {
+    console.log('🦆 sendMessage', msg?.type || msg);
+    return await chrome.runtime.sendMessage(msg);
+  } catch (err) {
+    const text = (err as Error)?.message || '';
+    if (text.toLowerCase().includes('context invalidated')) {
+      console.warn('Extension context invalidated. Reloading page to re-inject scripts.');
+      // Force a reload so the new content script attaches to the fresh extension context
+      location.reload();
+    }
+    throw err;
+  }
 }
 
 // Initialize when DOM is ready
