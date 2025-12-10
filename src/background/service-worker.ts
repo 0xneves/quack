@@ -56,6 +56,17 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
     case 'DECRYPT_MESSAGE':
       return await handleDecryptMessage(message.payload as { ciphertext: string });
       
+    case 'ENCRYPTED_MESSAGE_READY':
+      // Handle blacklist notification from compose
+      if (message.payload && typeof message.payload === 'object' && 'encrypted' in message.payload) {
+        const encrypted = (message.payload as { encrypted: string }).encrypted;
+        encryptedMessageBlacklist.add(encrypted);
+        setTimeout(() => {
+          encryptedMessageBlacklist.delete(encrypted);
+        }, 60 * 60 * 1000);
+      }
+      return { success: true };
+      
     default:
       throw new Error(`Unknown message type: ${message.type}`);
   }

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --mode development --watch",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && vite build --config vite.content.config.ts",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
