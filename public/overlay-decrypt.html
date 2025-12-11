@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quack Decrypt</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: transparent;
+    }
+    .bubble {
+      position: relative;
+      width: 340px;
+      max-height: 260px;
+      background: #ffffff;
+      color: #111827;
+      border-radius: 12px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
+      border: none;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      background: linear-gradient(120deg, #f7b267, #f79d65);
+      color: #0b0c0f;
+      cursor: grab;
+      user-select: none;
+      min-height: 32px;
+    }
+    .title {
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.01em;
+    }
+    .close-btn {
+      border: none;
+      background: rgba(0, 0, 0, 0.08);
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-weight: 700;
+      color: #111827;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .close-btn:hover { background: rgba(0, 0, 0, 0.14); }
+
+    .section {
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .cipher-chip {
+      background: #fce2c7;
+      color: #5f3310;
+      border-radius: 9px;
+      padding: 8px 10px;
+      font-size: 13px;
+      line-height: 1.35;
+      word-break: break-word;
+      box-shadow: inset 0 0 0 1px rgba(234, 113, 26, 0.18);
+    }
+
+    .plain-box {
+      background: #f9fafb;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 14px;
+      color: #111827;
+      max-height: 140px;
+      overflow-y: auto;
+      word-break: break-word;
+      white-space: pre-wrap;
+      box-shadow: inset 0 0 0 1px #e5e7eb;
+    }
+
+    .status {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: -2px;
+    }
+    .status.error { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <div class="bubble" id="bubble">
+    <div class="header" id="drag-handle">
+      <div class="title" id="bubble-title">Quack</div>
+      <button class="close-btn" id="close-btn" aria-label="Close">×</button>
+    </div>
+    <div class="section">
+      <div class="cipher-chip" id="decrypt-cipher"></div>
+      <div class="plain-box" id="decrypt-plain"></div>
+      <div class="status" id="decrypt-status"></div>
+    </div>
+  </div>
+
+  <script src="overlay-decrypt.js"></script>
+</body>
+</html>

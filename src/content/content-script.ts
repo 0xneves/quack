@@ -35,23 +35,57 @@ let lastInlineSignature: string | null = null;
 let inlineHovering = false;
 let inlineHoverCounts = new Map<string, number>();
 let inlineActiveMatchId: string | null = null;
-const OVERLAY_WIDTH = 360;
-const OVERLAY_HEIGHT = 320;
+const OVERLAY_WIDTH = 340;
+const OVERLAY_HEIGHT = 260;
 const OVERLAY_MARGIN = 12;
-let overlayFrame: HTMLIFrameElement | null = null;
-let overlayWindow: Window | null = null;
-let overlayReady = false;
-let overlayReadyPromise: Promise<void> | null = null;
-let overlayReadyResolve: (() => void) | null = null;
-let overlayMessageQueue: any[] = [];
-let overlayDragging = false;
-let overlayPosition = { top: 120, left: 120 };
+type OverlayKind = 'decrypt' | 'encrypt';
+const OVERLAY_SRC: Record<OverlayKind, string> = {
+  decrypt: 'overlay-decrypt.html',
+  encrypt: 'overlay-encrypt.html',
+};
+type OverlayState = {
+  frame: HTMLIFrameElement | null;
+  ready: boolean;
+  readyPromise: Promise<void> | null;
+  readyResolve: (() => void) | null;
+  messageQueue: any[];
+  port: MessagePort | null;
+  portReady: boolean;
+  portReadyPromise: Promise<void> | null;
+  portReadyResolve: (() => void) | null;
+  dragging: boolean;
+  position: { top: number; left: number };
+};
+const overlayStates: Record<OverlayKind, OverlayState> = {
+  decrypt: {
+    frame: null,
+    ready: false,
+    readyPromise: null,
+    readyResolve: null,
+    messageQueue: [],
+    port: null,
+    portReady: false,
+    portReadyPromise: null,
+    portReadyResolve: null,
+    dragging: false,
+    position: { top: 120, left: 120 },
+  },
+  encrypt: {
+    frame: null,
+    ready: false,
+    readyPromise: null,
+    readyResolve: null,
+    messageQueue: [],
+    port: null,
+    portReady: false,
+    portReadyPromise: null,
+    portReadyResolve: null,
+    dragging: false,
+    position: { top: 120, left: 120 },
+  },
+};
 let encryptOverlayActive = false;
 let pendingDuckEditable: HTMLElement | null = null;
-let overlayPort: MessagePort | null = null;
-let overlayPortReady = false;
-let overlayPortReadyPromise: Promise<void> | null = null;
-let overlayPortReadyResolve: (() => void) | null = null;
 
 function setUnderlineHover(matchId: string, hovered: boolean) {
   inlineItems
@@ -71,14 +105,15 @@ function removeInlineCardOnly() {
   inlineEncrypted = null;
 }
 
-async function ensureOverlayFrame(): Promise<void> {
-  if (overlayReady && overlayFrame) return;
-  if (!overlayReadyPromise) {
-    overlayReadyPromise = new Promise<void>((resolve) => {
-      overlayReadyResolve = resolve;
+async function ensureOverlayFrame(kind: OverlayKind): Promise<void> {
+  const state = overlayStates[kind];
+  if (state.ready && state.frame) return;
+  if (!state.readyPromise) {
+    state.readyPromise = new Promise<void>((resolve) => {
+      state.readyResolve = resolve;
     });
     const iframe = document.createElement('iframe');
-    iframe.src = chrome.runtime.getURL('overlay.html');
+    iframe.src = chrome.runtime.getURL(OVERLAY_SRC[kind]);
     iframe.sandbox = 'allow-scripts allow-popups allow-forms';
     iframe.style.position = 'fixed';
     iframe.style.width = `${OVERLAY_WIDTH}px`;
@@ -90,81 +125,92 @@ async function ensureOverlayFrame(): Promise<void> {
     iframe.style.boxShadow = 'none';
     iframe.style.pointerEvents = 'auto';
     iframe.onload = () => {
-      overlayWindow = iframe.contentWindow;
-      overlayReady = true;
+      state.ready = true;
       const channel = new MessageChannel();
-      overlayPort = channel.port1;
-      overlayPort.onmessage = handleOverlayPortMessage;
-      overlayPortReady = true;
-      if (!overlayPortReadyPromise) {
-        overlayPortReadyPromise = Promise.resolve();
+      state.port = channel.port1;
+      state.port.onmessage = (evt) => handleOverlayPortMessage(kind, evt);
+      state.portReady = true;
+      if (!state.portReadyPromise) {
+        state.portReadyPromise = Promise.resolve();
       } else {
-        overlayPortReadyResolve?.();
+        state.portReadyResolve?.();
       }
-      overlayWindow?.postMessage({ quackOverlay: true, type: 'init' }, '*', [channel.port2]);
-      overlayMessageQueue.forEach(msg => overlayPort?.postMessage(msg));
-      overlayMessageQueue = [];
-      overlayReadyResolve?.();
+      iframe.contentWindow?.postMessage({ quackOverlay: true, type: 'init' }, '*', [channel.port2]);
+      state.messageQueue.forEach(msg => state.port?.postMessage(msg));
+      state.messageQueue = [];
+      state.readyResolve?.();
     };
-    overlayFrame = iframe;
+    state.frame = iframe;
     document.body.appendChild(iframe);
   }
-  await overlayReadyPromise;
+  await state.readyPromise;
 }
 
-function applyOverlayPosition() {
-  if (!overlayFrame) return;
-  overlayFrame.style.left = `${overlayPosition.left}px`;
-  overlayFrame.style.top = `${overlayPosition.top}px`;
+function applyOverlayPosition(kind: OverlayKind) {
+  const state = overlayStates[kind];
+  if (!state.frame) return;
+  state.frame.style.left = `${state.position.left}px`;
+  state.frame.style.top = `${state.position.top}px`;
 }
 
-function setOverlayPosition(top: number, left: number) {
+function setOverlayPosition(kind: OverlayKind, top: number, left: number) {
   const maxLeft = Math.max(0, window.innerWidth - OVERLAY_WIDTH - OVERLAY_MARGIN);
   const maxTop = Math.max(0, window.innerHeight - OVERLAY_HEIGHT - OVERLAY_MARGIN);
-  overlayPosition = {
+  stateFor(kind).position = {
     top: Math.min(Math.max(OVERLAY_MARGIN, top), maxTop),
     left: Math.min(Math.max(OVERLAY_MARGIN, left), maxLeft),
   };
-  applyOverlayPosition();
+  applyOverlayPosition(kind);
 }
 
-async function showOverlay(anchor?: DOMRect) {
-  await ensureOverlayFrame();
+function stateFor(kind: OverlayKind): OverlayState {
+  return overlayStates[kind];
+}
+
+async function showOverlay(kind: OverlayKind, anchor?: DOMRect) {
+  const other: OverlayKind = kind === 'decrypt' ? 'encrypt' : 'decrypt';
+  hideOverlay(other);
+  await ensureOverlayFrame(kind);
+  const state = stateFor(kind);
   if (anchor) {
     const preferredTop = anchor.bottom + OVERLAY_MARGIN;
     const preferredLeft = anchor.left;
-    setOverlayPosition(preferredTop, preferredLeft);
+    setOverlayPosition(kind, preferredTop, preferredLeft);
   } else {
-    applyOverlayPosition();
+    applyOverlayPosition(kind);
   }
-  if (overlayFrame) {
-    overlayFrame.style.display = 'block';
+  if (state.frame) {
+    state.frame.style.display = 'block';
   }
 }
 
-function hideOverlay() {
-  if (overlayFrame) {
-    overlayFrame.style.display = 'none';
+function hideOverlay(kind: OverlayKind) {
+  const state = stateFor(kind);
+  if (state.frame) {
+    state.frame.style.display = 'none';
   }
-  overlayDragging = false;
-  encryptOverlayActive = false;
-  pendingDuckEditable = null;
+  state.dragging = false;
+  if (kind === 'encrypt') {
+    encryptOverlayActive = false;
+    pendingDuckEditable = null;
+  }
 }
 
-function sendOverlayMessage(msg: any) {
-  if (overlayPortReady && overlayPort) {
-    overlayPort.postMessage(msg);
+function sendOverlayMessage(kind: OverlayKind, msg: any) {
+  const state = stateFor(kind);
+  if (state.portReady && state.port) {
+    state.port.postMessage(msg);
     return;
   }
-  overlayMessageQueue.push(msg);
+  state.messageQueue.push(msg);
 }
 
-function handleOverlayPortMessage(event: MessageEvent) {
+function handleOverlayPortMessage(kind: OverlayKind, event: MessageEvent) {
   const data = event.data;
   if (!data || data.quackOverlay !== true) return;
   switch (data.type) {
     case 'close': {
-      hideOverlay();
+      hideOverlay(kind);
       break;
     }
     case 'copy': {
@@ -178,32 +224,33 @@ function handleOverlayPortMessage(event: MessageEvent) {
       break;
     }
     case 'drag-start': {
-      overlayDragging = true;
+      stateFor(kind).dragging = true;
       break;
     }
     case 'drag-end': {
-      overlayDragging = false;
+      stateFor(kind).dragging = false;
       break;
     }
     case 'drag-move': {
-      if (!overlayDragging) break;
-      const nextTop = overlayPosition.top + (data.deltaY ?? 0);
-      const nextLeft = overlayPosition.left + (data.deltaX ?? 0);
-      setOverlayPosition(nextTop, nextLeft);
+      const st = stateFor(kind);
+      if (!st.dragging) break;
+      const nextTop = st.position.top + (data.deltaY ?? 0);
+      const nextLeft = st.position.left + (data.deltaX ?? 0);
+      setOverlayPosition(kind, nextTop, nextLeft);
       break;
     }
   }
 }
 
 async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
-  await showOverlay(anchor);
+  await showOverlay('decrypt', anchor);
   try {
     const response = await sendMessageSafe({
       type: 'DECRYPT_MESSAGE',
       payload: { ciphertext },
     });
     if (response.plaintext) {
-      sendOverlayMessage({
+      sendOverlayMessage('decrypt', {
         type: 'open-decrypt',
         ciphertext,
         plaintext: response.plaintext,
@@ -211,7 +258,7 @@ async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
         quackOverlay: true,
       });
     } else {
-      sendOverlayMessage({
+      sendOverlayMessage('decrypt', {
         type: 'open-decrypt',
         ciphertext,
         plaintext: '',
@@ -221,7 +268,7 @@ async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
     }
   } catch (error) {
     console.error('Inline decryption error:', error);
-    sendOverlayMessage({
+    sendOverlayMessage('decrypt', {
       type: 'open-decrypt',
       ciphertext,
       plaintext: '',
@@ -236,13 +283,13 @@ async function openEncryptBubble(prefill: string, anchor: DOMRect | null, editab
   pendingDuckEditable = editable;
   const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
   const keys = keyResponse.keys || [];
-  await showOverlay(anchor || editable.getBoundingClientRect());
-  sendOverlayMessage({ quackOverlay: true, type: 'open-encrypt', keys, prefill });
+  await showOverlay('encrypt', anchor || editable.getBoundingClientRect());
+  sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', keys, prefill });
 }
 
 async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
   if (!keyId) {
-    sendOverlayMessage({ type: 'encrypt-result', error: 'No key selected' });
+    sendOverlayMessage('encrypt', { type: 'encrypt-result', error: 'No key selected' });
     return;
   }
   try {
@@ -262,15 +309,15 @@ async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
         const replaced = current.replace('Duck:', cipher);
         setElementValue(pendingDuckEditable, replaced);
       }
-      sendOverlayMessage({ quackOverlay: true, type: 'encrypt-result', cipher });
+      sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher });
       encryptOverlayActive = false;
       pendingDuckEditable = null;
     } else {
-      sendOverlayMessage({ quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
+      sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
     }
   } catch (err) {
     console.error('Overlay encrypt error', err);
-    sendOverlayMessage({ quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
+    sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
   }
 }
 

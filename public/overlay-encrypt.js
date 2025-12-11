@@ -1,38 +1,23 @@
 (function () {
   const bubble = document.getElementById('bubble');
-  const decryptSection = document.getElementById('decrypt-section');
-  const encryptSection = document.getElementById('encrypt-section');
-  const decryptCipher = document.getElementById('decrypt-cipher');
-  const decryptPlain = document.getElementById('decrypt-plain');
-  const decryptStatus = document.getElementById('decrypt-status');
   const encryptText = document.getElementById('encrypt-text');
   const encryptKey = document.getElementById('encrypt-key');
   const encryptOutput = document.getElementById('encrypt-output');
   const encryptStatus = document.getElementById('encrypt-status');
   const title = document.getElementById('bubble-title');
 
-  const state = {
-    mode: null,
-    dragging: false,
-  };
   let port = null;
+  const state = { dragging: false };
 
-  function showBubble(mode) {
-    state.mode = mode;
-    decryptSection.hidden = mode !== 'decrypt';
-    encryptSection.hidden = mode !== 'encrypt';
+  function showBubble() {
     bubble.style.display = 'flex';
   }
 
   function hideBubble() {
     bubble.style.display = 'none';
-    state.mode = null;
     encryptText.value = '';
     encryptOutput.textContent = '';
     encryptStatus.textContent = '';
-    decryptCipher.textContent = '';
-    decryptPlain.textContent = '';
-    decryptStatus.textContent = '';
   }
 
   function setKeys(keys) {
@@ -58,22 +43,13 @@
     const data = event.data;
     if (!data || data.quackOverlay !== true) return;
     switch (data.type) {
-      case 'open-decrypt': {
-        title.textContent = 'Decrypt';
-        decryptCipher.textContent = data.ciphertext || '';
-        decryptPlain.textContent = data.plaintext || '';
-        decryptStatus.textContent = data.keyName ? `Decrypted with ${data.keyName}` : (data.error || '');
-        decryptStatus.className = 'status' + (data.error ? ' error' : '');
-        showBubble('decrypt');
-        break;
-      }
       case 'open-encrypt': {
-        title.textContent = 'Encrypt';
+        title.textContent = 'Quack';
         setKeys(data.keys || []);
         encryptText.value = data.prefill || '';
         encryptOutput.textContent = '';
         encryptStatus.textContent = '';
-        showBubble('encrypt');
+        showBubble();
         break;
       }
       case 'encrypt-result': {
@@ -102,13 +78,6 @@
   document.getElementById('close-btn')?.addEventListener('click', () => {
     port?.postMessage({ quackOverlay: true, type: 'close' });
     hideBubble();
-  });
-
-  document.getElementById('copy-plain')?.addEventListener('click', () => {
-    port?.postMessage({ quackOverlay: true, type: 'copy', text: decryptPlain.textContent || '' });
-  });
-  document.getElementById('copy-cipher')?.addEventListener('click', () => {
-    port?.postMessage({ quackOverlay: true, type: 'copy', text: decryptCipher.textContent || '' });
   });
 
   document.getElementById('encrypt-submit')?.addEventListener('click', () => {
