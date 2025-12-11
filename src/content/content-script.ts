@@ -71,7 +71,6 @@ function init() {
   setupInputDetection();
   setupDOMScanning();
   injectSelectionStyles();
-  setupSelectionMenu();
   
   console.log('✅ Quack content script initialized');
 }
@@ -628,107 +627,6 @@ function showExcessiveQuacksWarning() {
 }
 
 /**
- * Setup selection-based decryption
- */
-function setupSelectionMenu() {
-  let underlineEl: HTMLElement | null = null;
-  let hitboxEl: HTMLElement | null = null;
-  let cardEl: HTMLElement | null = null;
-  let selectionHover = false;
-  
-  const cleanup = () => {
-    underlineEl?.remove();
-    hitboxEl?.remove();
-    cardEl?.remove();
-    underlineEl = null;
-    hitboxEl = null;
-    cardEl = null;
-    selectionHover = false;
-  };
-  
-  document.addEventListener('mouseup', () => {
-    cleanup();
-    
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return;
-    
-    const selectedText = selection.toString();
-    const match = selectedText.match(new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`));
-    if (!match) return;
-    
-    const range = selection.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) return;
-    
-    // Create animated underline
-    underlineEl = document.createElement('div');
-    underlineEl.className = 'quack-underline';
-    underlineEl.style.left = `${rect.left}px`;
-    underlineEl.style.top = `${rect.bottom - 3}px`;
-    underlineEl.style.width = `${rect.width}px`;
-    underlineEl.style.height = `3px`;
-    underlineEl.style.pointerEvents = 'none';
-    document.body.appendChild(underlineEl);
-
-    // Transparent hitbox over the text to drive hover state
-    hitboxEl = document.createElement('div');
-    hitboxEl.className = 'quack-underline-hit';
-    hitboxEl.style.left = `${rect.left}px`;
-    hitboxEl.style.top = `${rect.top}px`;
-    hitboxEl.style.width = `${rect.width}px`;
-    hitboxEl.style.height = `${rect.height}px`;
-    hitboxEl.addEventListener('mouseenter', () => {
-      selectionHover = true;
-      underlineEl?.classList.add('hovered');
-    });
-    hitboxEl.addEventListener('mouseleave', () => {
-      selectionHover = false;
-      if (!cardEl) underlineEl?.classList.remove('hovered');
-    });
-    document.body.appendChild(hitboxEl);
-    
-    // Create action card
-  cardEl = document.createElement('div');
-  cardEl.className = 'quack-selection-card';
-  cardEl.innerHTML = `
-    <button class="quack-card-btn quack-card-primary" aria-label="Decrypt with Quack">🦆 Duck it</button>
-    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss action">🗑️ Dismiss</button>
-  `;
-    document.body.appendChild(cardEl);
-    
-    positionCard(rect, cardEl);
-    
-    // Button handlers
-    cardEl.querySelector('.quack-card-primary')?.addEventListener('click', async () => {
-      const encrypted = match[0];
-      try {
-        const response = await sendMessageSafe({
-          type: 'DECRYPT_MESSAGE',
-          payload: { ciphertext: encrypted },
-        });
-        
-        if (response.plaintext) {
-          showNotification(`✅ Decrypted: ${response.plaintext.substring(0, 50)}...`);
-        } else {
-          showNotification('❌ Could not decrypt message');
-        }
-      } catch (error) {
-        console.error('Selection decryption error:', error);
-        showNotification('❌ Decryption failed');
-      }
-      cleanup();
-    });
-    
-    cardEl.querySelector('.quack-card-secondary')?.addEventListener('click', cleanup);
-    // Keep underline dark while the action card is visible/hovered
-    cardEl.addEventListener('mouseenter', () => underlineEl?.classList.add('hovered'));
-    cardEl.addEventListener('mouseleave', () => {
-      if (!selectionHover) underlineEl?.classList.remove('hovered');
-    });
-  });
-}
-
-/**
  * Inline highlight for Quack ciphers inside editable fields (no selection needed)
  */
 function updateInlineHighlight(target: HTMLElement, value: string) {
@@ -788,10 +686,6 @@ function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string;
     hit.style.width = `${item.rect.width}px`;
     hit.style.height = `${item.rect.height}px`;
     hit.tabIndex = -1;
-    hit.addEventListener('mousedown', (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-    });
     hit.addEventListener('mouseenter', () => {
       inlineHovering = true;
       if (inlineHideTimer) {
