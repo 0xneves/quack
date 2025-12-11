@@ -660,9 +660,9 @@ function setupSelectionMenu() {
     underlineEl = document.createElement('div');
     underlineEl.className = 'quack-underline';
     underlineEl.style.left = `${rect.left}px`;
-    underlineEl.style.top = `${rect.bottom - 2}px`;
+    underlineEl.style.top = `${rect.bottom - 3}px`;
     underlineEl.style.width = `${rect.width}px`;
-    underlineEl.style.height = `2px`;
+    underlineEl.style.height = `3px`;
     underlineEl.style.pointerEvents = 'none';
     document.body.appendChild(underlineEl);
 
@@ -773,9 +773,9 @@ function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string;
     const u = document.createElement('div');
     u.className = 'quack-underline';
     u.style.left = `${item.rect.left}px`;
-    u.style.top = `${item.rect.bottom - 2}px`;
+    u.style.top = `${item.rect.bottom - 3}px`;
     u.style.width = `${item.rect.width}px`;
-    u.style.height = `2px`;
+    u.style.height = `3px`;
     u.style.pointerEvents = 'none';
     const hit = document.createElement('div');
     hit.className = 'quack-underline-hit';
@@ -973,11 +973,8 @@ function injectSelectionStyles() {
     }
     .quack-underline {
       position: fixed;
-      min-height: 2px;
-      background: linear-gradient(90deg, #fca55d 0%, #f97316 100%);
-      background-repeat: no-repeat;
-      background-position: left bottom;
-      background-size: 100% 2px;
+      min-height: 3px;
+      background: #ffad54;
       transform-origin: left center;
       animation: quack-underline-sweep 180ms ease-out forwards;
       z-index: 999999;
@@ -986,7 +983,7 @@ function injectSelectionStyles() {
       transition: background 160ms ease;
     }
     .quack-underline.hovered {
-      background: linear-gradient(90deg, #f97316 0%, #ea580c 100%);
+      background: #ff600f;
     }
     .quack-underline-hit {
       position: fixed;
