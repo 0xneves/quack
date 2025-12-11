@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quack Overlay</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: transparent;
+    }
+    .bubble {
+      position: relative;
+      width: 360px;
+      max-height: 320px;
+      background: #ffffff;
+      color: #111827;
+      border-radius: 14px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+      border: 1px solid #e5e7eb;
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: linear-gradient(120deg, #f7b267, #f79d65);
+      color: #0b0c0f;
+      cursor: grab;
+      user-select: none;
+    }
+    .title {
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .close-btn {
+      border: none;
+      background: rgba(0, 0, 0, 0.08);
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      color: #111827;
+    }
+    .close-btn:hover {
+      background: rgba(0, 0, 0, 0.14);
+    }
+    .section {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .box {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 14px;
+      color: #111827;
+      max-height: 120px;
+      overflow: auto;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      padding: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+    }
+    .textarea:focus {
+      border-color: #f79d65;
+      box-shadow: 0 0 0 2px rgba(247, 157, 101, 0.24);
+    }
+    .buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .btn {
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 14px;
+      flex: 1;
+      transition: background 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+    }
+    .btn-primary {
+      background: #ea711a;
+      color: #fff;
+      box-shadow: 0 12px 24px rgba(234, 113, 26, 0.22);
+    }
+    .btn-primary:hover {
+      background: #db5810;
+    }
+    .btn-secondary {
+      background: #fff;
+      color: #1f2937;
+      border-color: #e5e7eb;
+    }
+    .btn-secondary:hover {
+      background: #f9fafb;
+      border-color: #f79d65;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    select {
+      flex: 1;
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      padding: 8px 10px;
+      font-size: 14px;
+      outline: none;
+    }
+    select:focus {
+      border-color: #f79d65;
+      box-shadow: 0 0 0 2px rgba(247, 157, 101, 0.24);
+    }
+    .status {
+      font-size: 13px;
+      color: #6b7280;
+    }
+    .status.error {
+      color: #b91c1c;
+    }
+    .copy-link {
+      color: #ea711a;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="bubble" id="bubble">
+    <div class="header" id="drag-handle">
+      <div class="title" id="bubble-title">Quack</div>
+      <button class="close-btn" id="close-btn" aria-label="Close">×</button>
+    </div>
+    <div class="section" id="decrypt-section" hidden>
+      <div class="label">Ciphertext</div>
+      <div class="box" id="decrypt-cipher"></div>
+      <div class="label">Plaintext</div>
+      <div class="box" id="decrypt-plain"></div>
+      <div class="status" id="decrypt-status"></div>
+      <div class="buttons">
+        <button class="btn btn-primary" id="copy-plain">Copy plaintext</button>
+        <button class="btn btn-secondary" id="copy-cipher">Copy cipher</button>
+      </div>
+    </div>
+    <div class="section" id="encrypt-section" hidden>
+      <div class="label">Enter text to encrypt</div>
+      <textarea class="textarea" id="encrypt-text" placeholder="Type your message..."></textarea>
+      <div class="row">
+        <div class="label" style="margin:0;">Key</div>
+        <select id="encrypt-key"></select>
+      </div>
+      <div class="buttons">
+        <button class="btn btn-primary" id="encrypt-submit">Encrypt</button>
+        <button class="btn btn-secondary" id="encrypt-cancel">Cancel</button>
+      </div>
+      <div class="label">Cipher</div>
+      <div class="box" id="encrypt-output"></div>
+      <div class="status" id="encrypt-status"></div>
+    </div>
+  </div>
+
+  <script src="overlay.js"></script>
+</body>
+</html>

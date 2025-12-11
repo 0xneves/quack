@@ -35,6 +35,23 @@ let lastInlineSignature: string | null = null;
 let inlineHovering = false;
 let inlineHoverCounts = new Map<string, number>();
 let inlineActiveMatchId: string | null = null;
+const OVERLAY_WIDTH = 360;
+const OVERLAY_HEIGHT = 320;
+const OVERLAY_MARGIN = 12;
+let overlayFrame: HTMLIFrameElement | null = null;
+let overlayWindow: Window | null = null;
+let overlayReady = false;
+let overlayReadyPromise: Promise<void> | null = null;
+let overlayReadyResolve: (() => void) | null = null;
+let overlayMessageQueue: any[] = [];
+let overlayDragging = false;
+let overlayPosition = { top: 120, left: 120 };
+let encryptOverlayActive = false;
+let pendingDuckEditable: HTMLElement | null = null;
+let overlayPort: MessagePort | null = null;
+let overlayPortReady = false;
+let overlayPortReadyPromise: Promise<void> | null = null;
+let overlayPortReadyResolve: (() => void) | null = null;
 
 function setUnderlineHover(matchId: string, hovered: boolean) {
   inlineItems
@@ -52,6 +69,209 @@ function removeInlineCardOnly() {
   }
   inlineActiveMatchId = null;
   inlineEncrypted = null;
+}
+
+async function ensureOverlayFrame(): Promise<void> {
+  if (overlayReady && overlayFrame) return;
+  if (!overlayReadyPromise) {
+    overlayReadyPromise = new Promise<void>((resolve) => {
+      overlayReadyResolve = resolve;
+    });
+    const iframe = document.createElement('iframe');
+    iframe.src = chrome.runtime.getURL('overlay.html');
+    iframe.sandbox = 'allow-scripts allow-popups allow-forms';
+    iframe.style.position = 'fixed';
+    iframe.style.width = `${OVERLAY_WIDTH}px`;
+    iframe.style.height = `${OVERLAY_HEIGHT}px`;
+    iframe.style.border = 'none';
+    iframe.style.zIndex = '1000001';
+    iframe.style.display = 'none';
+    iframe.style.background = 'transparent';
+    iframe.style.boxShadow = 'none';
+    iframe.style.pointerEvents = 'auto';
+    iframe.onload = () => {
+      overlayWindow = iframe.contentWindow;
+      overlayReady = true;
+      const channel = new MessageChannel();
+      overlayPort = channel.port1;
+      overlayPort.onmessage = handleOverlayPortMessage;
+      overlayPortReady = true;
+      if (!overlayPortReadyPromise) {
+        overlayPortReadyPromise = Promise.resolve();
+      } else {
+        overlayPortReadyResolve?.();
+      }
+      overlayWindow?.postMessage({ quackOverlay: true, type: 'init' }, '*', [channel.port2]);
+      overlayMessageQueue.forEach(msg => overlayPort?.postMessage(msg));
+      overlayMessageQueue = [];
+      overlayReadyResolve?.();
+    };
+    overlayFrame = iframe;
+    document.body.appendChild(iframe);
+  }
+  await overlayReadyPromise;
+}
+
+function applyOverlayPosition() {
+  if (!overlayFrame) return;
+  overlayFrame.style.left = `${overlayPosition.left}px`;
+  overlayFrame.style.top = `${overlayPosition.top}px`;
+}
+
+function setOverlayPosition(top: number, left: number) {
+  const maxLeft = Math.max(0, window.innerWidth - OVERLAY_WIDTH - OVERLAY_MARGIN);
+  const maxTop = Math.max(0, window.innerHeight - OVERLAY_HEIGHT - OVERLAY_MARGIN);
+  overlayPosition = {
+    top: Math.min(Math.max(OVERLAY_MARGIN, top), maxTop),
+    left: Math.min(Math.max(OVERLAY_MARGIN, left), maxLeft),
+  };
+  applyOverlayPosition();
+}
+
+async function showOverlay(anchor?: DOMRect) {
+  await ensureOverlayFrame();
+  if (anchor) {
+    const preferredTop = anchor.bottom + OVERLAY_MARGIN;
+    const preferredLeft = anchor.left;
+    setOverlayPosition(preferredTop, preferredLeft);
+  } else {
+    applyOverlayPosition();
+  }
+  if (overlayFrame) {
+    overlayFrame.style.display = 'block';
+  }
+}
+
+function hideOverlay() {
+  if (overlayFrame) {
+    overlayFrame.style.display = 'none';
+  }
+  overlayDragging = false;
+  encryptOverlayActive = false;
+  pendingDuckEditable = null;
+}
+
+function sendOverlayMessage(msg: any) {
+  if (overlayPortReady && overlayPort) {
+    overlayPort.postMessage(msg);
+    return;
+  }
+  overlayMessageQueue.push(msg);
+}
+
+function handleOverlayPortMessage(event: MessageEvent) {
+  const data = event.data;
+  if (!data || data.quackOverlay !== true) return;
+  switch (data.type) {
+    case 'close': {
+      hideOverlay();
+      break;
+    }
+    case 'copy': {
+      if (typeof data.text === 'string') {
+        navigator.clipboard?.writeText(data.text).catch(err => console.error('Copy failed', err));
+      }
+      break;
+    }
+    case 'encrypt-request': {
+      handleOverlayEncryptRequest(data.plaintext ?? '', data.keyId);
+      break;
+    }
+    case 'drag-start': {
+      overlayDragging = true;
+      break;
+    }
+    case 'drag-end': {
+      overlayDragging = false;
+      break;
+    }
+    case 'drag-move': {
+      if (!overlayDragging) break;
+      const nextTop = overlayPosition.top + (data.deltaY ?? 0);
+      const nextLeft = overlayPosition.left + (data.deltaX ?? 0);
+      setOverlayPosition(nextTop, nextLeft);
+      break;
+    }
+  }
+}
+
+async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
+  await showOverlay(anchor);
+  try {
+    const response = await sendMessageSafe({
+      type: 'DECRYPT_MESSAGE',
+      payload: { ciphertext },
+    });
+    if (response.plaintext) {
+      sendOverlayMessage({
+        type: 'open-decrypt',
+        ciphertext,
+        plaintext: response.plaintext,
+        keyName: response.keyName,
+        quackOverlay: true,
+      });
+    } else {
+      sendOverlayMessage({
+        type: 'open-decrypt',
+        ciphertext,
+        plaintext: '',
+        error: response.error || 'Could not decrypt message',
+        quackOverlay: true,
+      });
+    }
+  } catch (error) {
+    console.error('Inline decryption error:', error);
+    sendOverlayMessage({
+      type: 'open-decrypt',
+      ciphertext,
+      plaintext: '',
+      error: 'Decryption failed',
+      quackOverlay: true,
+    });
+  }
+}
+
+async function openEncryptBubble(prefill: string, anchor: DOMRect | null, editable: HTMLElement) {
+  encryptOverlayActive = true;
+  pendingDuckEditable = editable;
+  const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
+  const keys = keyResponse.keys || [];
+  await showOverlay(anchor || editable.getBoundingClientRect());
+  sendOverlayMessage({ quackOverlay: true, type: 'open-encrypt', keys, prefill });
+}
+
+async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
+  if (!keyId) {
+    sendOverlayMessage({ type: 'encrypt-result', error: 'No key selected' });
+    return;
+  }
+  try {
+    const resp = await sendMessageSafe({
+      type: 'ENCRYPT_MESSAGE',
+      payload: { plaintext, keyId },
+    });
+    if (resp?.encrypted) {
+      const cipher = `${QUACK_PREFIX}${resp.encrypted}`;
+      try {
+        await navigator.clipboard?.writeText(cipher);
+      } catch (copyErr) {
+        console.warn('Clipboard write failed', copyErr);
+      }
+      if (pendingDuckEditable) {
+        const current = getElementValue(pendingDuckEditable);
+        const replaced = current.replace('Duck:', cipher);
+        setElementValue(pendingDuckEditable, replaced);
+      }
+      sendOverlayMessage({ quackOverlay: true, type: 'encrypt-result', cipher });
+      encryptOverlayActive = false;
+      pendingDuckEditable = null;
+    } else {
+      sendOverlayMessage({ quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
+    }
+  } catch (err) {
+    console.error('Overlay encrypt error', err);
+    sendOverlayMessage({ quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
+  }
 }
 
 /**
@@ -95,6 +315,13 @@ function setupInputDetection() {
 
     if (value.endsWith('Quack://')) {
       showSecureComposePrompt(editable);
+    }
+
+    const duckTrigger = value.match(/Duck:(?!\/\/)/);
+    if (duckTrigger && !encryptOverlayActive) {
+      const rect = editable.getBoundingClientRect();
+      const anchor = new DOMRect(rect.left, rect.top, rect.width, rect.height);
+      openEncryptBubble('', anchor, editable).catch(err => console.error('Encrypt overlay error', err));
     }
 
     updateInlineHighlight(editable, value);
@@ -791,20 +1018,8 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
 
   inlineCardEl.querySelector('.quack-card-primary')?.addEventListener('click', async () => {
     if (!inlineEncrypted) return;
-    try {
-      const response = await sendMessageSafe({
-        type: 'DECRYPT_MESSAGE',
-        payload: { ciphertext: inlineEncrypted },
-      });
-      if (response.plaintext) {
-        showNotification(`✅ Decrypted: ${response.plaintext.substring(0, 50)}...`);
-      } else {
-        showNotification('❌ Could not decrypt message');
-      }
-    } catch (error) {
-      console.error('Inline decryption error:', error);
-      showNotification('❌ Decryption failed');
-    }
+    const anchorRect = getAnchorRectForMatch(item.matchId, item.rect);
+    await openDecryptBubble(inlineEncrypted, anchorRect);
     cleanupInlineHighlight();
   });
 
