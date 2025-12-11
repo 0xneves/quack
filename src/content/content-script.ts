@@ -684,12 +684,12 @@ function setupSelectionMenu() {
     document.body.appendChild(hitboxEl);
     
     // Create action card
-    cardEl = document.createElement('div');
-    cardEl.className = 'quack-selection-card';
-    cardEl.innerHTML = `
-      <button class="quack-card-btn quack-card-primary">Decrypt with Quack</button>
-      <button class="quack-card-btn quack-card-secondary">Dismiss</button>
-    `;
+  cardEl = document.createElement('div');
+  cardEl.className = 'quack-selection-card';
+  cardEl.innerHTML = `
+    <button class="quack-card-btn quack-card-primary" aria-label="Decrypt with Quack">🦆 Duck it</button>
+    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss action">🗑️ Dismiss</button>
+  `;
     document.body.appendChild(cardEl);
     
     positionCard(rect, cardEl);
@@ -862,8 +862,8 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
   inlineCardEl = document.createElement('div');
   inlineCardEl.className = 'quack-selection-card';
   inlineCardEl.innerHTML = `
-    <button class="quack-card-btn quack-card-primary">Decrypt with Quack</button>
-    <button class="quack-card-btn quack-card-secondary">Dismiss</button>
+    <button class="quack-card-btn quack-card-primary" aria-label="Decrypt with Quack">🦆 Duck it</button>
+    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss action">🗑️ Dismiss</button>
   `;
 
   inlineCardEl.addEventListener('mouseenter', () => {
@@ -974,16 +974,18 @@ function injectSelectionStyles() {
     .quack-underline {
       position: fixed;
       min-height: 3px;
-      background: #ffad54;
+      background: #f4b777;
       transform-origin: left center;
       animation: quack-underline-sweep 180ms ease-out forwards;
       z-index: 999999;
       pointer-events: none;
       opacity: 1;
-      transition: background 160ms ease;
+      transition: background 160ms ease, box-shadow 160ms ease;
+      box-shadow: 0 0 0 1px rgba(234, 113, 26, 0.25);
     }
     .quack-underline.hovered {
-      background: #ff600f;
+      background: #ea711a;
+      box-shadow: 0 0 0 1px rgba(219, 88, 16, 0.35);
     }
     .quack-underline-hit {
       position: fixed;
@@ -993,13 +995,14 @@ function injectSelectionStyles() {
     }
     .quack-selection-card {
       position: fixed;
-      background: #1f2937;
-      color: white;
-      border-radius: 10px;
-      padding: 10px;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+      background: #ffffff;
+      color: #111827;
+      border-radius: 12px;
+      padding: 8px;
+      border: 1px solid #e5e7eb;
+      box-shadow: 0 12px 30px rgba(17, 24, 39, 0.12);
       z-index: 1000000;
-      width: 180px;
+      width: 120px;
       display: flex;
       flex-direction: column;
       gap: 6px;
@@ -1007,26 +1010,42 @@ function injectSelectionStyles() {
       font-size: 14px;
     }
     .quack-card-btn {
-      border: none;
-      border-radius: 6px;
-      padding: 8px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      padding: 8px 10px;
       cursor: pointer;
-      font-weight: 600;
-      transition: background-color 120ms ease, color 120ms ease;
+      font-weight: 700;
+      transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+      text-align: left;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-start;
+      line-height: 1.2;
+      white-space: normal;
+    }
+    .quack-card-btn:focus-visible {
+      outline: 2px solid #ea711a;
+      outline-offset: 2px;
     }
     .quack-card-primary {
-      background: #f97316;
-      color: white;
+      background: #ea711a;
+      color: #ffffff;
+      box-shadow: 0 10px 18px rgba(234, 113, 26, 0.18);
     }
     .quack-card-primary:hover {
-      background: #ea580c;
+      background: #db5810;
+      box-shadow: 0 12px 22px rgba(219, 88, 16, 0.24);
     }
     .quack-card-secondary {
-      background: #374151;
-      color: #e5e7eb;
+      background: #ffffff;
+      color: #374151;
+      border-color: #e5e7eb;
     }
     .quack-card-secondary:hover {
-      background: #4b5563;
+      background: #f9fafb;
+      border-color: #f4b777;
+      color: #111827;
     }
   `;
   document.head.appendChild(style);
