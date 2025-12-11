@@ -26,17 +26,31 @@ let activeEditable: HTMLElement | null = null;
 let activeObserver: MutationObserver | null = null;
 let inlineItems: Array<{
   underline: HTMLElement;
+  hitbox: HTMLElement;
   rect: DOMRect;
-  encrypted: string;
   matchId: string;
+  encrypted: string;
 }> = [];
 let lastInlineSignature: string | null = null;
 let inlineHovering = false;
+let inlineHoverCounts = new Map<string, number>();
+let inlineActiveMatchId: string | null = null;
+
+function setUnderlineHover(matchId: string, hovered: boolean) {
+  inlineItems
+    .filter(i => i.matchId === matchId)
+    .forEach(i => i.underline.classList.toggle('hovered', hovered));
+}
 function removeInlineCardOnly() {
   if (inlineCardEl) {
     inlineCardEl.remove();
     inlineCardEl = null;
   }
+  if (inlineActiveMatchId) {
+    const count = inlineHoverCounts.get(inlineActiveMatchId) ?? 0;
+    if (count === 0) setUnderlineHover(inlineActiveMatchId, false);
+  }
+  inlineActiveMatchId = null;
   inlineEncrypted = null;
 }
 
@@ -614,18 +628,18 @@ function showExcessiveQuacksWarning() {
  */
 function setupSelectionMenu() {
   let underlineEl: HTMLElement | null = null;
+  let hitboxEl: HTMLElement | null = null;
   let cardEl: HTMLElement | null = null;
-  let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+  let selectionHover = false;
   
   const cleanup = () => {
-    if (hoverTimer) {
-      clearTimeout(hoverTimer);
-      hoverTimer = null;
-    }
     underlineEl?.remove();
+    hitboxEl?.remove();
     cardEl?.remove();
     underlineEl = null;
+    hitboxEl = null;
     cardEl = null;
+    selectionHover = false;
   };
   
   document.addEventListener('mouseup', () => {
@@ -648,11 +662,26 @@ function setupSelectionMenu() {
     underlineEl.style.left = `${rect.left}px`;
     underlineEl.style.top = `${rect.bottom - 2}px`;
     underlineEl.style.width = `${rect.width}px`;
+    underlineEl.style.height = `2px`;
+    underlineEl.style.pointerEvents = 'none';
     document.body.appendChild(underlineEl);
-    // Keep underline dark while modal is open after initial sweep
-    hoverTimer = setTimeout(() => {
+
+    // Transparent hitbox over the text to drive hover state
+    hitboxEl = document.createElement('div');
+    hitboxEl.className = 'quack-underline-hit';
+    hitboxEl.style.left = `${rect.left}px`;
+    hitboxEl.style.top = `${rect.top}px`;
+    hitboxEl.style.width = `${rect.width}px`;
+    hitboxEl.style.height = `${rect.height}px`;
+    hitboxEl.addEventListener('mouseenter', () => {
+      selectionHover = true;
       underlineEl?.classList.add('hovered');
-    }, 200);
+    });
+    hitboxEl.addEventListener('mouseleave', () => {
+      selectionHover = false;
+      if (!cardEl) underlineEl?.classList.remove('hovered');
+    });
+    document.body.appendChild(hitboxEl);
     
     // Create action card
     cardEl = document.createElement('div');
@@ -687,6 +716,11 @@ function setupSelectionMenu() {
     });
     
     cardEl.querySelector('.quack-card-secondary')?.addEventListener('click', cleanup);
+    // Keep underline dark while the action card is visible/hovered
+    cardEl.addEventListener('mouseenter', () => underlineEl?.classList.add('hovered'));
+    cardEl.addEventListener('mouseleave', () => {
+      if (!selectionHover) underlineEl?.classList.remove('hovered');
+    });
   });
 }
 
@@ -724,11 +758,16 @@ function collectQuackMatches(value: string): string[] {
 
 function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string; matchId: string }>) {
   // Remove old underlines/cards
-  inlineItems.forEach(i => i.underline.remove());
+  inlineItems.forEach(i => {
+    i.underline.remove();
+    i.hitbox.remove();
+  });
   inlineItems = [];
   inlineCardEl?.remove();
   inlineCardEl = null;
   inlineEncrypted = null;
+  inlineActiveMatchId = null;
+  inlineHoverCounts = new Map<string, number>();
 
   items.forEach(item => {
     const u = document.createElement('div');
@@ -736,23 +775,45 @@ function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string;
     u.style.left = `${item.rect.left}px`;
     u.style.top = `${item.rect.bottom - 2}px`;
     u.style.width = `${item.rect.width}px`;
-    u.style.pointerEvents = 'auto';
-    u.addEventListener('mouseenter', () => {
+    u.style.height = `2px`;
+    u.style.pointerEvents = 'none';
+    const hit = document.createElement('div');
+    hit.className = 'quack-underline-hit';
+    hit.style.left = `${item.rect.left}px`;
+    hit.style.top = `${item.rect.top}px`;
+    hit.style.width = `${item.rect.width}px`;
+    hit.style.height = `${item.rect.height}px`;
+    hit.addEventListener('mouseenter', () => {
       inlineHovering = true;
       if (inlineHideTimer) {
         clearTimeout(inlineHideTimer);
         inlineHideTimer = null;
       }
+      // Clear hover state for all other matches to avoid stuck dark underlines
+      inlineHoverCounts.forEach((_, key) => {
+        if (key !== item.matchId) {
+          inlineHoverCounts.set(key, 0);
+          setUnderlineHover(key, false);
+        }
+      });
+      inlineHoverCounts.set(item.matchId, 1);
+      setUnderlineHover(item.matchId, true);
+      inlineActiveMatchId = item.matchId;
       showInlineCardFor(item, u);
     });
-    u.addEventListener('mouseleave', () => {
+    hit.addEventListener('mouseleave', () => {
       inlineHovering = false;
+      const count = inlineHoverCounts.get(item.matchId) ?? 0;
+      const next = Math.max(0, count - 1);
+      inlineHoverCounts.set(item.matchId, next);
+      if (!inlineCardEl && next === 0) {
+        setUnderlineHover(item.matchId, false);
+      }
       scheduleInlineHide();
     });
     document.body.appendChild(u);
-    inlineItems.push({ underline: u, rect: item.rect, encrypted: item.encrypted, matchId: item.matchId });
-    // keep underline dark after initial sweep
-    setTimeout(() => u.classList.add('hovered'), 200);
+    document.body.appendChild(hit);
+    inlineItems.push({ underline: u, hitbox: hit, rect: item.rect, encrypted: item.encrypted, matchId: item.matchId });
   });
 }
 
@@ -762,11 +823,16 @@ function cleanupInlineHighlight() {
     inlineHideTimer = null;
   }
   inlineHovering = false;
-  inlineItems.forEach(i => i.underline.remove());
+  inlineItems.forEach(i => {
+    i.underline.remove();
+    i.hitbox.remove();
+  });
   inlineItems = [];
   inlineCardEl?.remove();
   inlineCardEl = null;
   inlineEncrypted = null;
+  inlineActiveMatchId = null;
+  inlineHoverCounts.clear();
   lastInlineSignature = null;
 }
 
@@ -806,11 +872,12 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
       clearTimeout(inlineHideTimer);
       inlineHideTimer = null;
     }
-    underlineEl.classList.add('hovered');
+    setUnderlineHover(item.matchId, true);
   });
 
   inlineCardEl.addEventListener('mouseleave', () => {
-    underlineEl.classList.remove('hovered');
+    const remaining = inlineHoverCounts.get(item.matchId) ?? 0;
+    if (remaining === 0) setUnderlineHover(item.matchId, false);
     inlineHovering = false;
     scheduleInlineHide();
   });
@@ -906,16 +973,26 @@ function injectSelectionStyles() {
     }
     .quack-underline {
       position: fixed;
-      height: 2px;
+      min-height: 2px;
       background: linear-gradient(90deg, #fca55d 0%, #f97316 100%);
+      background-repeat: no-repeat;
+      background-position: left bottom;
+      background-size: 100% 2px;
       transform-origin: left center;
       animation: quack-underline-sweep 180ms ease-out forwards;
       z-index: 999999;
       pointer-events: none;
       opacity: 1;
+      transition: background 160ms ease;
     }
     .quack-underline.hovered {
       background: linear-gradient(90deg, #f97316 0%, #ea580c 100%);
+    }
+    .quack-underline-hit {
+      position: fixed;
+      background: transparent;
+      z-index: 999999;
+      pointer-events: auto;
     }
     .quack-selection-card {
       position: fixed;
@@ -1024,6 +1101,7 @@ function showNotification(message: string) {
 /**
  * Safe wrapper for chrome.runtime.sendMessage to handle "Extension context invalidated"
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function sendMessageSafe<T = any>(msg: any): Promise<T> {
   try {
     console.log('🦆 sendMessage', msg?.type || msg);
