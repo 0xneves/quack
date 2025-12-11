@@ -682,9 +682,10 @@ function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string;
     const hit = document.createElement('div');
     hit.className = 'quack-underline-hit';
     hit.style.left = `${item.rect.left}px`;
-    hit.style.top = `${item.rect.top}px`;
+    // Keep the hover hitbox narrow near the underline so clicks still reach text
+    hit.style.top = `${item.rect.bottom - 6}px`;
     hit.style.width = `${item.rect.width}px`;
-    hit.style.height = `${item.rect.height}px`;
+    hit.style.height = `6px`;
     hit.tabIndex = -1;
     hit.addEventListener('mouseenter', () => {
       inlineHovering = true;
