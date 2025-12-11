@@ -114,9 +114,13 @@ function setupInputDetection() {
     }
   });
 
-  document.addEventListener('focusout', () => {
+  document.addEventListener('focusout', (e) => {
+    const next = (e.relatedTarget as HTMLElement | null);
+    if (activeEditable && next && activeEditable.contains(next)) {
+      return;
+    }
+    // Keep underlines rendered; they will clear when text changes
     setActiveEditable(null);
-    cleanupInlineHighlight();
   });
 
 }
@@ -783,6 +787,11 @@ function renderInlineUnderlines(items: Array<{ rect: DOMRect; encrypted: string;
     hit.style.top = `${item.rect.top}px`;
     hit.style.width = `${item.rect.width}px`;
     hit.style.height = `${item.rect.height}px`;
+    hit.tabIndex = -1;
+    hit.addEventListener('mousedown', (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+    });
     hit.addEventListener('mouseenter', () => {
       inlineHovering = true;
       if (inlineHideTimer) {
