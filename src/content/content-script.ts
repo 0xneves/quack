@@ -46,6 +46,7 @@ const OVERLAY_SRC: Record<OverlayKind, string> = {
   decrypt: 'overlay-decrypt.html',
   encrypt: 'overlay-encrypt.html',
 };
+const ENCRYPT_TRIGGER_PATTERNS = /(Quack:|quack:|___)(?!\/\/)/g;
 type OverlayPayload = Record<string, unknown>;
 type OverlayState = {
   frame: HTMLIFrameElement | null;
@@ -89,7 +90,13 @@ const overlayStates: Record<OverlayKind, OverlayState> = {
   },
 };
 let encryptOverlayActive = false;
-let pendingDuckEditable: HTMLElement | null = null;
+let pendingDuckContext: { editable: HTMLElement; token: string; index: number } | null = null;
+let encryptPromptEl: HTMLElement | null = null;
+let encryptPromptCleanup: (() => void) | null = null;
+let encryptTriggerToken: string | null = null;
+let encryptTriggerIndex: number | null = null;
+let encryptTriggerEditable: HTMLElement | null = null;
+let encryptOverlayDismissCleanup: (() => void) | null = null;
 
 function setUnderlineHover(matchId: string, hovered: boolean) {
   inlineItems
@@ -232,11 +239,40 @@ function hideOverlay(kind: OverlayKind) {
   state.dragging = false;
   if (kind === 'encrypt') {
     encryptOverlayActive = false;
-    pendingDuckEditable = null;
+    pendingDuckContext = null;
+    clearEncryptPrompt();
+    if (encryptOverlayDismissCleanup) {
+      encryptOverlayDismissCleanup();
+      encryptOverlayDismissCleanup = null;
+    }
   }
   if (kind === 'decrypt') {
     clearActiveCipherHighlights();
   }
+}
+
+function setupEncryptOverlayDismiss() {
+  if (encryptOverlayDismissCleanup) {
+    encryptOverlayDismissCleanup();
+  }
+  const onPointerDown = (evt: PointerEvent) => {
+    const frame = overlayStates.encrypt.frame;
+    if (!frame) return;
+    const target = evt.target as Node | null;
+    if (target && frame.contains(target)) return;
+    hideOverlay('encrypt');
+  };
+  const onKeydown = (evt: KeyboardEvent) => {
+    if (evt.key === 'Escape') {
+      hideOverlay('encrypt');
+    }
+  };
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('keydown', onKeydown, true);
+  encryptOverlayDismissCleanup = () => {
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    document.removeEventListener('keydown', onKeydown, true);
+  };
 }
 
 function sendOverlayMessage(kind: OverlayKind, msg: OverlayPayload) {
@@ -336,17 +372,25 @@ async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
   }
 }
 
-async function openEncryptBubble(prefill: string, anchor: DOMRect | null, editable: HTMLElement) {
+async function openEncryptBubble(
+  prefill: string,
+  anchor: DOMRect | null,
+  editable: HTMLElement,
+  triggerToken: string,
+  triggerIndex: number
+) {
   encryptOverlayActive = true;
-  pendingDuckEditable = editable;
+  pendingDuckContext = { editable, token: triggerToken, index: triggerIndex };
   const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
   const keys = keyResponse.keys || [];
   if (!keys.length) {
     encryptOverlayActive = false;
+    clearEncryptPrompt();
     requestUnlock();
     return;
   }
   await showOverlay('encrypt', anchor || editable.getBoundingClientRect());
+  setupEncryptOverlayDismiss();
   sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', keys, prefill });
 }
 
@@ -372,14 +416,21 @@ async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
       } catch (copyErr) {
         console.warn('Clipboard write failed', copyErr);
       }
-      if (pendingDuckEditable) {
-        const current = getElementValue(pendingDuckEditable);
-        const replaced = current.replace('Duck:', cipher);
-        setElementValue(pendingDuckEditable, replaced);
+      if (pendingDuckContext) {
+        const { editable, token, index } = pendingDuckContext;
+        const current = getElementValue(editable);
+        let replaced = current;
+        if (index >= 0 && index + token.length <= current.length) {
+          replaced = `${current.slice(0, index)}${cipher}${current.slice(index + token.length)}`;
+        } else {
+          replaced = current.replace(token, cipher);
+        }
+        setElementValue(editable, replaced);
       }
       sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher });
+      hideOverlay('encrypt');
       encryptOverlayActive = false;
-      pendingDuckEditable = null;
+      pendingDuckContext = null;
     } else {
       sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
     }
@@ -421,22 +472,16 @@ function setupInputDetection() {
     setActiveEditable(editable);
     const value = getElementValue(editable);
 
-    // Inline encryption trigger: __plaintext__
-    const underlineMatch = value.match(/__(.+?)__/);
-    if (underlineMatch) {
-      const plaintext = underlineMatch[1];
-      showInlineEncryptPrompt(editable, plaintext, underlineMatch[0]);
-    }
-
     if (value.endsWith('Quack://')) {
       showSecureComposePrompt(editable);
     }
 
-    const duckTrigger = value.match(/Duck:(?!\/\/)/);
-    if (duckTrigger && !encryptOverlayActive) {
-      const rect = editable.getBoundingClientRect();
-      const anchor = new DOMRect(rect.left, rect.top, rect.width, rect.height);
-      openEncryptBubble('', anchor, editable).catch(err => console.error('Encrypt overlay error', err));
+    const encryptMatch = findEncryptTrigger(value);
+    if (encryptMatch && !encryptOverlayActive) {
+      const anchorRect = getTriggerAnchorRect(editable, encryptMatch.index, encryptMatch.token.length);
+      showEncryptPrompt(editable, encryptMatch.token, encryptMatch.index, anchorRect);
+    } else if (!encryptMatch) {
+      clearEncryptPrompt();
     }
 
     updateInlineHighlight(editable, value);
@@ -562,66 +607,6 @@ function showSecureComposePrompt(inputElement: HTMLElement) {
   
   // Auto-dismiss after 10 seconds
   setTimeout(() => prompt.remove(), 10000);
-}
-
-/**
- * Inline encrypt prompt for __text__
- */
-function showInlineEncryptPrompt(inputElement: HTMLElement, plaintext: string, token: string) {
-  // Remove existing prompt if any
-  const existing = document.querySelector('.quack-inline-encrypt');
-  if (existing) existing.remove();
-
-  const rect = inputElement.getBoundingClientRect();
-  const prompt = document.createElement('div');
-  prompt.className = 'quack-selection-card';
-  prompt.style.position = 'fixed';
-  prompt.style.left = `${rect.left}px`;
-  prompt.style.top = `${rect.bottom + 5}px`;
-  prompt.innerHTML = `
-    <button class="quack-card-btn quack-card-primary quack-inline-encrypt-btn" aria-label="Encrypt with Quack">Duck it</button>
-    <button class="quack-card-btn quack-card-secondary quack-inline-encrypt-cancel" aria-label="Dismiss">Dismiss</button>
-  `;
-
-  document.body.appendChild(prompt);
-
-  prompt.querySelector('.quack-inline-encrypt-btn')?.addEventListener('click', async () => {
-    try {
-      // get keys
-      const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
-      const firstKey = keyResponse.keys?.[0];
-      if (!firstKey) {
-        showNotification('❌ No keys available. Create a key first.');
-        prompt.remove();
-        return;
-      }
-
-      const encryptedResp = await sendMessageSafe({
-        type: 'ENCRYPT_MESSAGE',
-        payload: { plaintext, keyId: firstKey.id },
-      });
-
-      if (encryptedResp?.encrypted) {
-        const current = getElementValue(inputElement);
-        const replaced = current.replace(token, encryptedResp.encrypted);
-        setElementValue(inputElement, replaced);
-        showNotification('✅ Encrypted and replaced');
-      } else {
-        showNotification('❌ Encryption failed');
-      }
-    } catch (err) {
-      console.error('Inline encryption error', err);
-      showNotification('❌ Encryption failed');
-    } finally {
-      prompt.remove();
-    }
-  });
-
-  prompt.querySelector('.quack-inline-encrypt-cancel')?.addEventListener('click', () => {
-    prompt.remove();
-  });
-
-  setTimeout(() => prompt.remove(), 8000);
 }
 
 /**
@@ -1050,6 +1035,133 @@ function cleanupInlineHighlight() {
   inlineActiveMatchId = null;
   inlineHoverCounts.clear();
   lastInlineSignature = null;
+}
+
+function findEncryptTrigger(value: string): { token: string; index: number } | null {
+  const regex = new RegExp(ENCRYPT_TRIGGER_PATTERNS);
+  let match: RegExpExecArray | null = null;
+  let current: RegExpExecArray | null;
+  while ((current = regex.exec(value)) !== null) {
+    match = current;
+  }
+  if (!match) return null;
+  return { token: match[1], index: match.index };
+}
+
+function getRangeForOffset(root: HTMLElement, start: number, length: number): Range | null {
+  if (start < 0 || length <= 0) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = start;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const textNode = node as Text;
+    const text = textNode.textContent || '';
+    if (remaining <= text.length) {
+      const range = document.createRange();
+      const rangeStart = Math.max(0, remaining);
+      const rangeEnd = Math.min(text.length, rangeStart + length);
+      range.setStart(textNode, rangeStart);
+      range.setEnd(textNode, rangeEnd);
+      return range;
+    }
+    remaining -= text.length;
+  }
+  return null;
+}
+
+function getTriggerAnchorRect(editable: HTMLElement, start: number, length: number): DOMRect {
+  if (editable.isContentEditable) {
+    const range = getRangeForOffset(editable, start, length);
+    if (range) {
+      const rects = range.getClientRects();
+      if (rects.length > 0) return rects[0];
+      const rect = range.getBoundingClientRect();
+      if (rect) return rect;
+    }
+  }
+  return editable.getBoundingClientRect();
+}
+
+function clearEncryptPrompt() {
+  if (encryptPromptEl) {
+    encryptPromptEl.remove();
+  }
+  encryptPromptEl = null;
+  encryptTriggerEditable = null;
+  encryptTriggerIndex = null;
+  encryptTriggerToken = null;
+  if (encryptPromptCleanup) {
+    encryptPromptCleanup();
+    encryptPromptCleanup = null;
+  }
+}
+
+function showEncryptPrompt(
+  editable: HTMLElement,
+  token: string,
+  index: number,
+  anchorRect: DOMRect | null
+) {
+  if (encryptOverlayActive) return;
+  const anchor = anchorRect || editable.getBoundingClientRect();
+  if (
+    encryptPromptEl &&
+    encryptTriggerEditable === editable &&
+    encryptTriggerIndex === index &&
+    encryptTriggerToken === token
+  ) {
+    positionCard(anchor, encryptPromptEl);
+    return;
+  }
+
+  clearEncryptPrompt();
+  const card = document.createElement('div');
+  card.className = 'quack-selection-card';
+  card.innerHTML = `
+    <button class="quack-card-btn quack-card-primary" aria-label="Encrypt with Quack">Duck it</button>
+    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss encrypt prompt">Dismiss</button>
+  `;
+
+  const handleOutside = (evt: PointerEvent) => {
+    const target = evt.target as Node | null;
+    if (target && card.contains(target)) return;
+    clearEncryptPrompt();
+  };
+  const handleKeydown = (evt: KeyboardEvent) => {
+    if (evt.key === 'Escape') {
+      clearEncryptPrompt();
+    }
+  };
+  document.addEventListener('pointerdown', handleOutside, true);
+  document.addEventListener('keydown', handleKeydown, true);
+  encryptPromptCleanup = () => {
+    document.removeEventListener('pointerdown', handleOutside, true);
+    document.removeEventListener('keydown', handleKeydown, true);
+  };
+
+  card.addEventListener('mouseenter', () => {
+    // Keep visible while hovered; no auto-dismiss timer
+  });
+  card.addEventListener('mouseleave', () => {
+    // Visibility managed by outside click/esc
+  });
+
+  card.querySelector('.quack-card-primary')?.addEventListener('click', () => {
+    clearEncryptPrompt();
+    openEncryptBubble('', anchor, editable, token, index).catch(err => {
+      console.error('Encrypt overlay error', err);
+    });
+  });
+  card.querySelector('.quack-card-secondary')?.addEventListener('click', () => {
+    clearEncryptPrompt();
+  });
+
+  encryptPromptEl = card;
+  encryptTriggerEditable = editable;
+  encryptTriggerIndex = index;
+  encryptTriggerToken = token;
+  document.body.appendChild(card);
+  positionCard(anchor, card);
 }
 
 function scheduleInlineHide() {

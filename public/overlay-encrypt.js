@@ -20,6 +20,11 @@
     encryptStatus.textContent = '';
   }
 
+  function closeBubble() {
+    port?.postMessage({ quackOverlay: true, type: 'close' });
+    hideBubble();
+  }
+
   function setKeys(keys) {
     encryptKey.innerHTML = '';
     if (!keys || !keys.length) {
@@ -84,10 +89,7 @@
     });
   }
 
-  document.getElementById('close-btn')?.addEventListener('click', () => {
-    port?.postMessage({ quackOverlay: true, type: 'close' });
-    hideBubble();
-  });
+  document.getElementById('close-btn')?.addEventListener('click', closeBubble);
 
   document.getElementById('encrypt-submit')?.addEventListener('click', () => {
     if (!encryptKey.value) {
@@ -103,9 +105,12 @@
     });
   });
 
-  document.getElementById('encrypt-cancel')?.addEventListener('click', () => {
-    port?.postMessage({ quackOverlay: true, type: 'close' });
-    hideBubble();
+  document.getElementById('encrypt-cancel')?.addEventListener('click', closeBubble);
+
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeBubble();
+    }
   });
 
   const dragHandle = document.getElementById('drag-handle');
