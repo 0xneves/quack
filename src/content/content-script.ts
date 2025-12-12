@@ -35,20 +35,24 @@ let lastInlineSignature: string | null = null;
 let inlineHovering = false;
 let inlineHoverCounts = new Map<string, number>();
 let inlineActiveMatchId: string | null = null;
+let activeCipherHighlights: HTMLElement[] = [];
 const OVERLAY_WIDTH = 340;
 const OVERLAY_HEIGHT = 260;
+const OVERLAY_MAX_HEIGHT = 420;
+const OVERLAY_MIN_HEIGHT = 180;
 const OVERLAY_MARGIN = 12;
 type OverlayKind = 'decrypt' | 'encrypt';
 const OVERLAY_SRC: Record<OverlayKind, string> = {
   decrypt: 'overlay-decrypt.html',
   encrypt: 'overlay-encrypt.html',
 };
+type OverlayPayload = Record<string, unknown>;
 type OverlayState = {
   frame: HTMLIFrameElement | null;
   ready: boolean;
   readyPromise: Promise<void> | null;
   readyResolve: (() => void) | null;
-  messageQueue: any[];
+  messageQueue: OverlayPayload[];
   port: MessagePort | null;
   portReady: boolean;
   portReadyPromise: Promise<void> | null;
@@ -105,6 +109,39 @@ function removeInlineCardOnly() {
   inlineEncrypted = null;
 }
 
+function clearActiveCipherHighlights() {
+  activeCipherHighlights.forEach(el => el.remove());
+  activeCipherHighlights = [];
+}
+
+function setActiveCipherHighlight(matchId: string) {
+  clearActiveCipherHighlights();
+  const targets = inlineItems.filter(i => i.matchId === matchId);
+  targets.forEach(t => {
+    const h = document.createElement('div');
+    h.style.position = 'fixed';
+    h.style.left = `${t.rect.left}px`;
+    h.style.top = `${t.rect.top}px`;
+    h.style.width = `${t.rect.width}px`;
+    h.style.height = `${t.rect.height}px`;
+    h.style.background = 'rgba(247, 146, 101, 0.35)';
+    h.style.borderRadius = '4px';
+    h.style.pointerEvents = 'none';
+    h.style.zIndex = '1000002';
+    document.body.appendChild(h);
+    activeCipherHighlights.push(h);
+  });
+}
+
+function isLockedError(msg?: string | null): boolean {
+  if (!msg) return false;
+  return msg.toLowerCase().includes('locked');
+}
+
+function requestUnlock() {
+  chrome.runtime.sendMessage({ type: 'OPEN_UNLOCK' });
+}
+
 async function ensureOverlayFrame(kind: OverlayKind): Promise<void> {
   const state = overlayStates[kind];
   if (state.ready && state.frame) return;
@@ -154,9 +191,12 @@ function applyOverlayPosition(kind: OverlayKind) {
 }
 
 function setOverlayPosition(kind: OverlayKind, top: number, left: number) {
-  const maxLeft = Math.max(0, window.innerWidth - OVERLAY_WIDTH - OVERLAY_MARGIN);
-  const maxTop = Math.max(0, window.innerHeight - OVERLAY_HEIGHT - OVERLAY_MARGIN);
-  stateFor(kind).position = {
+  const state = stateFor(kind);
+  const width = state.frame?.offsetWidth || OVERLAY_WIDTH;
+  const height = state.frame?.offsetHeight || OVERLAY_HEIGHT;
+  const maxLeft = Math.max(0, window.innerWidth - width - OVERLAY_MARGIN);
+  const maxTop = Math.max(0, window.innerHeight - height - OVERLAY_MARGIN);
+  state.position = {
     top: Math.min(Math.max(OVERLAY_MARGIN, top), maxTop),
     left: Math.min(Math.max(OVERLAY_MARGIN, left), maxLeft),
   };
@@ -194,9 +234,12 @@ function hideOverlay(kind: OverlayKind) {
     encryptOverlayActive = false;
     pendingDuckEditable = null;
   }
+  if (kind === 'decrypt') {
+    clearActiveCipherHighlights();
+  }
 }
 
-function sendOverlayMessage(kind: OverlayKind, msg: any) {
+function sendOverlayMessage(kind: OverlayKind, msg: OverlayPayload) {
   const state = stateFor(kind);
   if (state.portReady && state.port) {
     state.port.postMessage(msg);
@@ -209,6 +252,15 @@ function handleOverlayPortMessage(kind: OverlayKind, event: MessageEvent) {
   const data = event.data;
   if (!data || data.quackOverlay !== true) return;
   switch (data.type) {
+    case 'resize': {
+      const state = stateFor(kind);
+      if (state.frame && typeof data.height === 'number') {
+        const clamped = Math.min(OVERLAY_MAX_HEIGHT, Math.max(OVERLAY_MIN_HEIGHT, data.height));
+        state.frame.style.height = `${clamped}px`;
+        setOverlayPosition(kind, state.position.top, state.position.left);
+      }
+      break;
+    }
     case 'close': {
       hideOverlay(kind);
       break;
@@ -243,12 +295,18 @@ function handleOverlayPortMessage(kind: OverlayKind, event: MessageEvent) {
 }
 
 async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
-  await showOverlay('decrypt', anchor);
   try {
     const response = await sendMessageSafe({
       type: 'DECRYPT_MESSAGE',
       payload: { ciphertext },
     });
+    if (isLockedError(response?.error)) {
+      hideOverlay('decrypt');
+      clearActiveCipherHighlights();
+      requestUnlock();
+      return;
+    }
+    await showOverlay('decrypt', anchor);
     if (response.plaintext) {
       sendOverlayMessage('decrypt', {
         type: 'open-decrypt',
@@ -283,6 +341,11 @@ async function openEncryptBubble(prefill: string, anchor: DOMRect | null, editab
   pendingDuckEditable = editable;
   const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
   const keys = keyResponse.keys || [];
+  if (!keys.length) {
+    encryptOverlayActive = false;
+    requestUnlock();
+    return;
+  }
   await showOverlay('encrypt', anchor || editable.getBoundingClientRect());
   sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', keys, prefill });
 }
@@ -297,6 +360,11 @@ async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
       type: 'ENCRYPT_MESSAGE',
       payload: { plaintext, keyId },
     });
+    if (isLockedError(resp?.error)) {
+      hideOverlay('encrypt');
+      requestUnlock();
+      return;
+    }
     if (resp?.encrypted) {
       const cipher = `${QUACK_PREFIX}${resp.encrypted}`;
       try {
@@ -1020,7 +1088,7 @@ function scheduleInlineHide() {
     inlineHideTimer = null;
     if (inlineHovering) return;
     removeInlineCardOnly();
-  }, 1300);
+  }, 1000);
 }
 
 function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: string }, underlineEl: HTMLElement) {
@@ -1065,6 +1133,7 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
 
   inlineCardEl.querySelector('.quack-card-primary')?.addEventListener('click', async () => {
     if (!inlineEncrypted) return;
+    setActiveCipherHighlight(item.matchId);
     const anchorRect = getAnchorRectForMatch(item.matchId, item.rect);
     await openDecryptBubble(inlineEncrypted, anchorRect);
     cleanupInlineHighlight();

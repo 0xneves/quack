@@ -50,6 +50,7 @@
         encryptOutput.textContent = '';
         encryptStatus.textContent = '';
         showBubble();
+        requestResize();
         break;
       }
       case 'encrypt-result': {
@@ -74,6 +75,14 @@
     port = receivedPort;
     port.onmessage = handlePortMessage;
   });
+
+  function requestResize() {
+    if (!port) return;
+    requestAnimationFrame(() => {
+      const height = bubble.scrollHeight;
+      port?.postMessage({ quackOverlay: true, type: 'resize', height });
+    });
+  }
 
   document.getElementById('close-btn')?.addEventListener('click', () => {
     port?.postMessage({ quackOverlay: true, type: 'close' });

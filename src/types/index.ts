@@ -52,6 +52,7 @@ export type MessageType =
   | 'CACHE_VAULT'
   | 'GET_VAULT_DATA'
   | 'OPEN_SECURE_COMPOSE'
+  | 'OPEN_UNLOCK'
   | 'ENCRYPTED_MESSAGE_READY'
   | 'SHOW_NOTIFICATION';
 

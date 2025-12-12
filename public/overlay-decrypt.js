@@ -1,6 +1,5 @@
 (function () {
   const bubble = document.getElementById('bubble');
-  const decryptCipher = document.getElementById('decrypt-cipher');
   const decryptPlain = document.getElementById('decrypt-plain');
   const decryptStatus = document.getElementById('decrypt-status');
   const title = document.getElementById('bubble-title');
@@ -16,7 +15,6 @@
 
   function hideBubble() {
     bubble.style.display = 'none';
-    decryptCipher.textContent = '';
     decryptPlain.textContent = '';
     decryptStatus.textContent = '';
   }
@@ -27,11 +25,11 @@
     switch (data.type) {
       case 'open-decrypt': {
         title.textContent = 'Quack';
-        decryptCipher.textContent = data.ciphertext || '';
         decryptPlain.textContent = data.plaintext || '';
         decryptStatus.textContent = data.keyName ? `Decrypted with ${data.keyName}` : (data.error || '');
         decryptStatus.className = 'status' + (data.error ? ' error' : '');
         showBubble();
+        requestResize();
         break;
       }
       case 'hide': {
@@ -50,6 +48,14 @@
     port = receivedPort;
     port.onmessage = handlePortMessage;
   });
+
+  function requestResize() {
+    if (!port) return;
+    requestAnimationFrame(() => {
+      const height = bubble.scrollHeight;
+      port?.postMessage({ quackOverlay: true, type: 'resize', height });
+    });
+  }
 
   document.getElementById('close-btn')?.addEventListener('click', () => {
     port?.postMessage({ quackOverlay: true, type: 'close' });
