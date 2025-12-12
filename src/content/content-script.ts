@@ -574,43 +574,13 @@ function showInlineEncryptPrompt(inputElement: HTMLElement, plaintext: string, t
 
   const rect = inputElement.getBoundingClientRect();
   const prompt = document.createElement('div');
-  prompt.className = 'quack-inline-encrypt';
+  prompt.className = 'quack-selection-card';
+  prompt.style.position = 'fixed';
+  prompt.style.left = `${rect.left}px`;
+  prompt.style.top = `${rect.bottom + 5}px`;
   prompt.innerHTML = `
-    <div style="
-      position: fixed;
-      left: ${rect.left}px;
-      top: ${rect.bottom + 5}px;
-      background: #1f2937;
-      color: white;
-      padding: 8px 12px;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-      z-index: 999999;
-      font-family: system-ui;
-      font-size: 13px;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    ">
-      <span>Encrypt detected text?</span>
-      <button class="quack-inline-encrypt-btn" style="
-        background: #ea711a;
-        color: white;
-        border: none;
-        padding: 4px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-weight: 600;
-      ">Encrypt</button>
-      <button class="quack-inline-encrypt-cancel" style="
-        background: transparent;
-        color: white;
-        border: 1px solid #fff;
-        padding: 4px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-      ">Dismiss</button>
-    </div>
+    <button class="quack-card-btn quack-card-primary quack-inline-encrypt-btn" aria-label="Encrypt with Quack">Duck it</button>
+    <button class="quack-card-btn quack-card-secondary quack-inline-encrypt-cancel" aria-label="Dismiss">Dismiss</button>
   `;
 
   document.body.appendChild(prompt);
@@ -1108,8 +1078,8 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
   inlineCardEl = document.createElement('div');
   inlineCardEl.className = 'quack-selection-card';
   inlineCardEl.innerHTML = `
-    <button class="quack-card-btn quack-card-primary" aria-label="Decrypt with Quack">🦆 Duck it</button>
-    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss action">🗑️ Dismiss</button>
+    <button class="quack-card-btn quack-card-primary" aria-label="Decrypt with Quack">Quack?</button>
+    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss action">Dismiss</button>
   `;
 
   inlineCardEl.addEventListener('mouseenter', () => {
@@ -1232,22 +1202,23 @@ function injectSelectionStyles() {
       position: fixed;
       background: #ffffff;
       color: #111827;
-      border-radius: 12px;
-      padding: 8px;
+      border-radius: 6px;
+      padding: 4px 6px;
       border: 1px solid #e5e7eb;
-      box-shadow: 0 12px 30px rgba(17, 24, 39, 0.12);
+      box-shadow: none;
       z-index: 1000000;
-      width: 120px;
+      min-width: 150px;
       display: flex;
-      flex-direction: column;
-      gap: 6px;
+      flex-direction: row;
+      gap: 4px;
+      align-items: center;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
+      font-size: 13px;
     }
     .quack-card-btn {
       border: 1px solid transparent;
-      border-radius: 10px;
-      padding: 8px 10px;
+      border-radius: 6px;
+      padding: 6px 8px;
       cursor: pointer;
       font-weight: 700;
       transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
@@ -1258,6 +1229,7 @@ function injectSelectionStyles() {
       justify-content: flex-start;
       line-height: 1.2;
       white-space: normal;
+      box-shadow: none;
     }
     .quack-card-btn:focus-visible {
       outline: 2px solid #ea711a;
@@ -1266,11 +1238,11 @@ function injectSelectionStyles() {
     .quack-card-primary {
       background: #ea711a;
       color: #ffffff;
-      box-shadow: 0 10px 18px rgba(234, 113, 26, 0.18);
+      box-shadow: none;
     }
     .quack-card-primary:hover {
       background: #db5810;
-      box-shadow: 0 12px 22px rgba(219, 88, 16, 0.24);
+      box-shadow: none;
     }
     .quack-card-secondary {
       background: #ffffff;
