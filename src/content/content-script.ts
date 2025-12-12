@@ -410,7 +410,9 @@ async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
       return;
     }
     if (resp?.encrypted) {
-      const cipher = `${QUACK_PREFIX}${resp.encrypted}`;
+      const cipher = resp.encrypted.startsWith(QUACK_PREFIX)
+        ? resp.encrypted
+        : `${QUACK_PREFIX}${resp.encrypted}`;
       try {
         await navigator.clipboard?.writeText(cipher);
       } catch (copyErr) {

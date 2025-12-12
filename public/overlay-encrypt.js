@@ -2,8 +2,6 @@
   const bubble = document.getElementById('bubble');
   const encryptText = document.getElementById('encrypt-text');
   const encryptKey = document.getElementById('encrypt-key');
-  const encryptOutput = document.getElementById('encrypt-output');
-  const encryptStatus = document.getElementById('encrypt-status');
   const title = document.getElementById('bubble-title');
 
   let port = null;
@@ -16,8 +14,6 @@
   function hideBubble() {
     bubble.style.display = 'none';
     encryptText.value = '';
-    encryptOutput.textContent = '';
-    encryptStatus.textContent = '';
   }
 
   function closeBubble() {
@@ -52,16 +48,12 @@
         title.textContent = 'Quack';
         setKeys(data.keys || []);
         encryptText.value = data.prefill || '';
-        encryptOutput.textContent = '';
-        encryptStatus.textContent = '';
         showBubble();
         requestResize();
         break;
       }
       case 'encrypt-result': {
-        encryptOutput.textContent = data.cipher || '';
-        encryptStatus.textContent = data.error ? data.error : (data.cipher ? 'Copied to clipboard' : '');
-        encryptStatus.className = 'status' + (data.error ? ' error' : '');
+        // No output/status UI; content script will hide overlay on success/failure
         break;
       }
       case 'hide': {
@@ -92,11 +84,6 @@
   document.getElementById('close-btn')?.addEventListener('click', closeBubble);
 
   document.getElementById('encrypt-submit')?.addEventListener('click', () => {
-    if (!encryptKey.value) {
-      encryptStatus.textContent = 'No key available';
-      encryptStatus.className = 'status error';
-      return;
-    }
     port?.postMessage({
       quackOverlay: true,
       type: 'encrypt-request',
