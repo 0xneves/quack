@@ -420,14 +420,7 @@ async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
       }
       if (pendingDuckContext) {
         const { editable, token, index } = pendingDuckContext;
-        const current = getElementValue(editable);
-        let replaced = current;
-        if (index >= 0 && index + token.length <= current.length) {
-          replaced = `${current.slice(0, index)}${cipher}${current.slice(index + token.length)}`;
-        } else {
-          replaced = current.replace(token, cipher);
-        }
-        setElementValue(editable, replaced);
+        replaceTriggerToken(editable, token, index, cipher);
       }
       sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher });
       hideOverlay('encrypt');
@@ -1082,6 +1075,60 @@ function getTriggerAnchorRect(editable: HTMLElement, start: number, length: numb
     }
   }
   return editable.getBoundingClientRect();
+}
+
+function replaceContentEditableText(
+  root: HTMLElement,
+  start: number,
+  length: number,
+  replacement: string
+): boolean {
+  const range = getRangeForOffset(root, start, length);
+  if (!range) return false;
+  range.deleteContents();
+  const node = document.createTextNode(replacement);
+  range.insertNode(node);
+  const afterRange = document.createRange();
+  afterRange.setStartAfter(node);
+  afterRange.collapse(true);
+  const sel = document.getSelection();
+  if (sel) {
+    sel.removeAllRanges();
+    sel.addRange(afterRange);
+  }
+  const inputEvent = new InputEvent('input', {
+    bubbles: true,
+    cancelable: true,
+    inputType: 'insertReplacementText',
+    data: replacement,
+  });
+  root.dispatchEvent(inputEvent);
+  root.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+}
+
+function replaceTriggerToken(
+  editable: HTMLElement,
+  token: string,
+  index: number,
+  replacement: string
+): void {
+  const current = getElementValue(editable);
+  if (index >= 0 && index + token.length <= current.length) {
+    const nextVal = `${current.slice(0, index)}${replacement}${current.slice(index + token.length)}`;
+    if (editable.isContentEditable) {
+      const ok = replaceContentEditableText(editable, index, token.length, replacement);
+      if (!ok) {
+        setElementValue(editable, nextVal);
+      }
+    } else {
+      setElementValue(editable, nextVal);
+    }
+    return;
+  }
+  // Fallback simple replace
+  const fallback = current.replace(token, replacement);
+  setElementValue(editable, fallback);
 }
 
 function clearEncryptPrompt() {
