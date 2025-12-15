@@ -3,9 +3,42 @@
   const encryptText = document.getElementById('encrypt-text');
   const encryptKey = document.getElementById('encrypt-key');
   const title = document.getElementById('bubble-title');
+  const keyRow = document.querySelector('.row');
+  const buttonsRow = document.querySelector('.buttons');
+  const submitBtn = document.getElementById('encrypt-submit');
+  const cancelBtn = document.getElementById('encrypt-cancel');
 
   let port = null;
   const state = { dragging: false };
+
+  const statusEl = document.createElement('div');
+  statusEl.className = 'status';
+  statusEl.id = 'encrypt-status';
+  buttonsRow?.after(statusEl);
+
+  function showStatus(msg, kind = 'info') {
+    statusEl.textContent = msg || '';
+    statusEl.classList.toggle('error', kind === 'error');
+    requestResize();
+  }
+
+  function resetUI() {
+    encryptText.readOnly = false;
+    encryptText.value = '';
+    showStatus('');
+    if (keyRow) keyRow.style.display = '';
+    if (submitBtn) {
+      submitBtn.style.display = '';
+      submitBtn.textContent = 'Duck it';
+    }
+    if (cancelBtn) {
+      cancelBtn.textContent = 'Dismiss';
+      cancelBtn.style.flex = '1';
+    }
+    if (buttonsRow) {
+      buttonsRow.style.flexDirection = '';
+    }
+  }
 
   function showBubble() {
     bubble.style.display = 'flex';
@@ -40,12 +73,35 @@
     }
   }
 
-  function handlePortMessage(event) {
+  async function copyCipher(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch {
+        ok = false;
+      }
+      ta.remove();
+      return ok;
+    }
+  }
+
+  async function handlePortMessage(event) {
     const data = event.data;
     if (!data || data.quackOverlay !== true) return;
     switch (data.type) {
       case 'open-encrypt': {
         title.textContent = 'Quack';
+        resetUI();
         setKeys(data.keys || []);
         encryptText.value = data.prefill || '';
         showBubble();
@@ -53,7 +109,27 @@
         break;
       }
       case 'encrypt-result': {
-        // No output/status UI; content script will hide overlay on success/failure
+        if (data.error) {
+          showStatus(data.error || 'Encryption failed', 'error');
+          encryptText.readOnly = false;
+          return;
+        }
+        if (data.cipher) {
+          encryptText.readOnly = true;
+          encryptText.value = data.cipher;
+          showStatus('Encrypted message copied to clipboard!', 'info');
+          if (keyRow) keyRow.style.display = 'none';
+          if (submitBtn) submitBtn.style.display = 'none';
+          if (cancelBtn) {
+            cancelBtn.textContent = 'Dismiss';
+            cancelBtn.style.flex = '1';
+          }
+          const copied = await copyCipher(data.cipher);
+          if (!copied) {
+            showStatus('Encrypted but copy failed. Copy manually.', 'error');
+          }
+          requestResize();
+        }
         break;
       }
       case 'hide': {
@@ -83,7 +159,7 @@
 
   document.getElementById('close-btn')?.addEventListener('click', closeBubble);
 
-  document.getElementById('encrypt-submit')?.addEventListener('click', () => {
+  submitBtn?.addEventListener('click', () => {
     port?.postMessage({
       quackOverlay: true,
       type: 'encrypt-request',
@@ -92,7 +168,7 @@
     });
   });
 
-  document.getElementById('encrypt-cancel')?.addEventListener('click', closeBubble);
+  cancelBtn?.addEventListener('click', closeBubble);
 
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {

@@ -90,7 +90,6 @@ const overlayStates: Record<OverlayKind, OverlayState> = {
   },
 };
 let encryptOverlayActive = false;
-let pendingDuckContext: { editable: HTMLElement; token: string; index: number } | null = null;
 let encryptPromptEl: HTMLElement | null = null;
 let encryptPromptCleanup: (() => void) | null = null;
 let encryptTriggerToken: string | null = null;
@@ -158,7 +157,7 @@ async function ensureOverlayFrame(kind: OverlayKind): Promise<void> {
     });
     const iframe = document.createElement('iframe');
     iframe.src = chrome.runtime.getURL(OVERLAY_SRC[kind]);
-    iframe.sandbox = 'allow-scripts allow-popups allow-forms';
+    iframe.sandbox = 'allow-scripts allow-popups allow-forms allow-clipboard-write';
     iframe.style.position = 'fixed';
     iframe.style.width = `${OVERLAY_WIDTH}px`;
     iframe.style.height = `${OVERLAY_HEIGHT}px`;
@@ -239,7 +238,6 @@ function hideOverlay(kind: OverlayKind) {
   state.dragging = false;
   if (kind === 'encrypt') {
     encryptOverlayActive = false;
-    pendingDuckContext = null;
     clearEncryptPrompt();
     if (encryptOverlayDismissCleanup) {
       encryptOverlayDismissCleanup();
@@ -376,11 +374,10 @@ async function openEncryptBubble(
   prefill: string,
   anchor: DOMRect | null,
   editable: HTMLElement,
-  triggerToken: string,
-  triggerIndex: number
+  _triggerToken: string,
+  _triggerIndex: number
 ) {
   encryptOverlayActive = true;
-  pendingDuckContext = { editable, token: triggerToken, index: triggerIndex };
   const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
   const keys = keyResponse.keys || [];
   if (!keys.length) {
@@ -413,19 +410,7 @@ async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
       const cipher = resp.encrypted.startsWith(QUACK_PREFIX)
         ? resp.encrypted
         : `${QUACK_PREFIX}${resp.encrypted}`;
-      try {
-        await navigator.clipboard?.writeText(cipher);
-      } catch (copyErr) {
-        console.warn('Clipboard write failed', copyErr);
-      }
-      if (pendingDuckContext) {
-        const { editable, token, index } = pendingDuckContext;
-        replaceTriggerToken(editable, token, index, cipher);
-      }
       sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher });
-      hideOverlay('encrypt');
-      encryptOverlayActive = false;
-      pendingDuckContext = null;
     } else {
       sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
     }
@@ -1075,60 +1060,6 @@ function getTriggerAnchorRect(editable: HTMLElement, start: number, length: numb
     }
   }
   return editable.getBoundingClientRect();
-}
-
-function replaceContentEditableText(
-  root: HTMLElement,
-  start: number,
-  length: number,
-  replacement: string
-): boolean {
-  const range = getRangeForOffset(root, start, length);
-  if (!range) return false;
-  range.deleteContents();
-  const node = document.createTextNode(replacement);
-  range.insertNode(node);
-  const afterRange = document.createRange();
-  afterRange.setStartAfter(node);
-  afterRange.collapse(true);
-  const sel = document.getSelection();
-  if (sel) {
-    sel.removeAllRanges();
-    sel.addRange(afterRange);
-  }
-  const inputEvent = new InputEvent('input', {
-    bubbles: true,
-    cancelable: true,
-    inputType: 'insertReplacementText',
-    data: replacement,
-  });
-  root.dispatchEvent(inputEvent);
-  root.dispatchEvent(new Event('change', { bubbles: true }));
-  return true;
-}
-
-function replaceTriggerToken(
-  editable: HTMLElement,
-  token: string,
-  index: number,
-  replacement: string
-): void {
-  const current = getElementValue(editable);
-  if (index >= 0 && index + token.length <= current.length) {
-    const nextVal = `${current.slice(0, index)}${replacement}${current.slice(index + token.length)}`;
-    if (editable.isContentEditable) {
-      const ok = replaceContentEditableText(editable, index, token.length, replacement);
-      if (!ok) {
-        setElementValue(editable, nextVal);
-      }
-    } else {
-      setElementValue(editable, nextVal);
-    }
-    return;
-  }
-  // Fallback simple replace
-  const fallback = current.replace(token, replacement);
-  setElementValue(editable, fallback);
 }
 
 function clearEncryptPrompt() {
