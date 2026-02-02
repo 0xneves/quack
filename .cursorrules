@@ -1,0 +1,27 @@
+# Quack Development Rules
+
+## Code Style
+- Use TypeScript strict mode
+- Follow functional programming patterns where possible
+- Use descriptive variable names
+- Add comments for complex cryptographic operations
+
+## Security
+- Never log sensitive data (passwords, keys, plaintexts)
+- Clear sensitive data from memory after use
+- Always validate user input
+- Use constant-time comparison for sensitive strings
+
+## Testing
+- Test encryption/decryption with various message lengths
+- Test across different websites (YouTube, Twitter, Reddit)
+- Verify performance with many encrypted messages
+- Test auto-lock functionality
+
+## Git Commits
+- Use conventional commits format
+- Examples:
+  - feat: add secure compose mode
+  - fix: resolve decryption blacklist bug
+  - docs: update README with installation steps
+
