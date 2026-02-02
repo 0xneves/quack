@@ -43,7 +43,14 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["assets/*", "chunks/*"],
+      "resources": [
+        "assets/*",
+        "chunks/*",
+        "overlay-decrypt.html",
+        "overlay-decrypt.js",
+        "overlay-encrypt.html",
+        "overlay-encrypt.js"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

@@ -35,6 +35,67 @@ let lastInlineSignature: string | null = null;
 let inlineHovering = false;
 let inlineHoverCounts = new Map<string, number>();
 let inlineActiveMatchId: string | null = null;
+let activeCipherHighlights: HTMLElement[] = [];
+const OVERLAY_WIDTH = 340;
+const OVERLAY_HEIGHT = 260;
+const OVERLAY_MAX_HEIGHT = 420;
+const OVERLAY_MIN_HEIGHT = 180;
+const OVERLAY_MARGIN = 12;
+type OverlayKind = 'decrypt' | 'encrypt';
+const OVERLAY_SRC: Record<OverlayKind, string> = {
+  decrypt: 'overlay-decrypt.html',
+  encrypt: 'overlay-encrypt.html',
+};
+const ENCRYPT_TRIGGER_PATTERNS = /(Quack:|quack:|___)(?!\/\/)/g;
+type OverlayPayload = Record<string, unknown>;
+type OverlayState = {
+  frame: HTMLIFrameElement | null;
+  ready: boolean;
+  readyPromise: Promise<void> | null;
+  readyResolve: (() => void) | null;
+  messageQueue: OverlayPayload[];
+  port: MessagePort | null;
+  portReady: boolean;
+  portReadyPromise: Promise<void> | null;
+  portReadyResolve: (() => void) | null;
+  dragging: boolean;
+  position: { top: number; left: number };
+};
+const overlayStates: Record<OverlayKind, OverlayState> = {
+  decrypt: {
+    frame: null,
+    ready: false,
+    readyPromise: null,
+    readyResolve: null,
+    messageQueue: [],
+    port: null,
+    portReady: false,
+    portReadyPromise: null,
+    portReadyResolve: null,
+    dragging: false,
+    position: { top: 120, left: 120 },
+  },
+  encrypt: {
+    frame: null,
+    ready: false,
+    readyPromise: null,
+    readyResolve: null,
+    messageQueue: [],
+    port: null,
+    portReady: false,
+    portReadyPromise: null,
+    portReadyResolve: null,
+    dragging: false,
+    position: { top: 120, left: 120 },
+  },
+};
+let encryptOverlayActive = false;
+let encryptPromptEl: HTMLElement | null = null;
+let encryptPromptCleanup: (() => void) | null = null;
+let encryptTriggerToken: string | null = null;
+let encryptTriggerIndex: number | null = null;
+let encryptTriggerEditable: HTMLElement | null = null;
+let encryptOverlayDismissCleanup: (() => void) | null = null;
 
 function setUnderlineHover(matchId: string, hovered: boolean) {
   inlineItems
@@ -52,6 +113,311 @@ function removeInlineCardOnly() {
   }
   inlineActiveMatchId = null;
   inlineEncrypted = null;
+}
+
+function clearActiveCipherHighlights() {
+  activeCipherHighlights.forEach(el => el.remove());
+  activeCipherHighlights = [];
+}
+
+function setActiveCipherHighlight(matchId: string) {
+  clearActiveCipherHighlights();
+  const targets = inlineItems.filter(i => i.matchId === matchId);
+  targets.forEach(t => {
+    const h = document.createElement('div');
+    h.style.position = 'fixed';
+    h.style.left = `${t.rect.left}px`;
+    h.style.top = `${t.rect.top}px`;
+    h.style.width = `${t.rect.width}px`;
+    h.style.height = `${t.rect.height}px`;
+    h.style.background = 'rgba(247, 146, 101, 0.35)';
+    h.style.borderRadius = '4px';
+    h.style.pointerEvents = 'none';
+    h.style.zIndex = '1000002';
+    document.body.appendChild(h);
+    activeCipherHighlights.push(h);
+  });
+}
+
+function isLockedError(msg?: string | null): boolean {
+  if (!msg) return false;
+  return msg.toLowerCase().includes('locked');
+}
+
+function requestUnlock() {
+  chrome.runtime.sendMessage({ type: 'OPEN_UNLOCK' });
+}
+
+async function ensureOverlayFrame(kind: OverlayKind): Promise<void> {
+  const state = overlayStates[kind];
+  if (state.ready && state.frame) return;
+  if (!state.readyPromise) {
+    state.readyPromise = new Promise<void>((resolve) => {
+      state.readyResolve = resolve;
+    });
+    const iframe = document.createElement('iframe');
+    iframe.src = chrome.runtime.getURL(OVERLAY_SRC[kind]);
+    iframe.sandbox = 'allow-scripts allow-popups allow-forms allow-clipboard-write';
+    iframe.style.position = 'fixed';
+    iframe.style.width = `${OVERLAY_WIDTH}px`;
+    iframe.style.height = `${OVERLAY_HEIGHT}px`;
+    iframe.style.border = 'none';
+    iframe.style.zIndex = '1000001';
+    iframe.style.display = 'none';
+    iframe.style.background = 'transparent';
+    iframe.style.boxShadow = 'none';
+    iframe.style.pointerEvents = 'auto';
+    iframe.onload = () => {
+      state.ready = true;
+      const channel = new MessageChannel();
+      state.port = channel.port1;
+      state.port.onmessage = (evt) => handleOverlayPortMessage(kind, evt);
+      state.portReady = true;
+      if (!state.portReadyPromise) {
+        state.portReadyPromise = Promise.resolve();
+      } else {
+        state.portReadyResolve?.();
+      }
+      iframe.contentWindow?.postMessage({ quackOverlay: true, type: 'init' }, '*', [channel.port2]);
+      state.messageQueue.forEach(msg => state.port?.postMessage(msg));
+      state.messageQueue = [];
+      state.readyResolve?.();
+    };
+    state.frame = iframe;
+    document.body.appendChild(iframe);
+  }
+  await state.readyPromise;
+}
+
+function applyOverlayPosition(kind: OverlayKind) {
+  const state = overlayStates[kind];
+  if (!state.frame) return;
+  state.frame.style.left = `${state.position.left}px`;
+  state.frame.style.top = `${state.position.top}px`;
+}
+
+function setOverlayPosition(kind: OverlayKind, top: number, left: number) {
+  const state = stateFor(kind);
+  const width = state.frame?.offsetWidth || OVERLAY_WIDTH;
+  const height = state.frame?.offsetHeight || OVERLAY_HEIGHT;
+  const maxLeft = Math.max(0, window.innerWidth - width - OVERLAY_MARGIN);
+  const maxTop = Math.max(0, window.innerHeight - height - OVERLAY_MARGIN);
+  state.position = {
+    top: Math.min(Math.max(OVERLAY_MARGIN, top), maxTop),
+    left: Math.min(Math.max(OVERLAY_MARGIN, left), maxLeft),
+  };
+  applyOverlayPosition(kind);
+}
+
+function stateFor(kind: OverlayKind): OverlayState {
+  return overlayStates[kind];
+}
+
+async function showOverlay(kind: OverlayKind, anchor?: DOMRect) {
+  const other: OverlayKind = kind === 'decrypt' ? 'encrypt' : 'decrypt';
+  hideOverlay(other);
+  await ensureOverlayFrame(kind);
+  const state = stateFor(kind);
+  if (anchor) {
+    const preferredTop = anchor.bottom + OVERLAY_MARGIN;
+    const preferredLeft = anchor.left;
+    setOverlayPosition(kind, preferredTop, preferredLeft);
+  } else {
+    applyOverlayPosition(kind);
+  }
+  if (state.frame) {
+    state.frame.style.display = 'block';
+  }
+}
+
+function hideOverlay(kind: OverlayKind) {
+  const state = stateFor(kind);
+  if (state.frame) {
+    state.frame.style.display = 'none';
+  }
+  state.dragging = false;
+  if (kind === 'encrypt') {
+    encryptOverlayActive = false;
+    clearEncryptPrompt();
+    if (encryptOverlayDismissCleanup) {
+      encryptOverlayDismissCleanup();
+      encryptOverlayDismissCleanup = null;
+    }
+  }
+  if (kind === 'decrypt') {
+    clearActiveCipherHighlights();
+  }
+}
+
+function setupEncryptOverlayDismiss() {
+  if (encryptOverlayDismissCleanup) {
+    encryptOverlayDismissCleanup();
+  }
+  const onPointerDown = (evt: PointerEvent) => {
+    const frame = overlayStates.encrypt.frame;
+    if (!frame) return;
+    const target = evt.target as Node | null;
+    if (target && frame.contains(target)) return;
+    hideOverlay('encrypt');
+  };
+  const onKeydown = (evt: KeyboardEvent) => {
+    if (evt.key === 'Escape') {
+      hideOverlay('encrypt');
+    }
+  };
+  document.addEventListener('pointerdown', onPointerDown, true);
+  document.addEventListener('keydown', onKeydown, true);
+  encryptOverlayDismissCleanup = () => {
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    document.removeEventListener('keydown', onKeydown, true);
+  };
+}
+
+function sendOverlayMessage(kind: OverlayKind, msg: OverlayPayload) {
+  const state = stateFor(kind);
+  if (state.portReady && state.port) {
+    state.port.postMessage(msg);
+    return;
+  }
+  state.messageQueue.push(msg);
+}
+
+function handleOverlayPortMessage(kind: OverlayKind, event: MessageEvent) {
+  const data = event.data;
+  if (!data || data.quackOverlay !== true) return;
+  switch (data.type) {
+    case 'resize': {
+      const state = stateFor(kind);
+      if (state.frame && typeof data.height === 'number') {
+        const clamped = Math.min(OVERLAY_MAX_HEIGHT, Math.max(OVERLAY_MIN_HEIGHT, data.height));
+        state.frame.style.height = `${clamped}px`;
+        setOverlayPosition(kind, state.position.top, state.position.left);
+      }
+      break;
+    }
+    case 'close': {
+      hideOverlay(kind);
+      break;
+    }
+    case 'copy': {
+      if (typeof data.text === 'string') {
+        navigator.clipboard?.writeText(data.text).catch(err => console.error('Copy failed', err));
+      }
+      break;
+    }
+    case 'encrypt-request': {
+      handleOverlayEncryptRequest(data.plaintext ?? '', data.keyId);
+      break;
+    }
+    case 'drag-start': {
+      stateFor(kind).dragging = true;
+      break;
+    }
+    case 'drag-end': {
+      stateFor(kind).dragging = false;
+      break;
+    }
+    case 'drag-move': {
+      const st = stateFor(kind);
+      if (!st.dragging) break;
+      const nextTop = st.position.top + (data.deltaY ?? 0);
+      const nextLeft = st.position.left + (data.deltaX ?? 0);
+      setOverlayPosition(kind, nextTop, nextLeft);
+      break;
+    }
+  }
+}
+
+async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
+  try {
+    const response = await sendMessageSafe({
+      type: 'DECRYPT_MESSAGE',
+      payload: { ciphertext },
+    });
+    if (isLockedError(response?.error)) {
+      hideOverlay('decrypt');
+      clearActiveCipherHighlights();
+      requestUnlock();
+      return;
+    }
+    await showOverlay('decrypt', anchor);
+    if (response.plaintext) {
+      sendOverlayMessage('decrypt', {
+        type: 'open-decrypt',
+        ciphertext,
+        plaintext: response.plaintext,
+        keyName: response.keyName,
+        quackOverlay: true,
+      });
+    } else {
+      sendOverlayMessage('decrypt', {
+        type: 'open-decrypt',
+        ciphertext,
+        plaintext: '',
+        error: response.error || 'Could not decrypt message',
+        quackOverlay: true,
+      });
+    }
+  } catch (error) {
+    console.error('Inline decryption error:', error);
+    sendOverlayMessage('decrypt', {
+      type: 'open-decrypt',
+      ciphertext,
+      plaintext: '',
+      error: 'Decryption failed',
+      quackOverlay: true,
+    });
+  }
+}
+
+async function openEncryptBubble(
+  prefill: string,
+  anchor: DOMRect | null,
+  editable: HTMLElement,
+  _triggerToken: string,
+  _triggerIndex: number
+) {
+  encryptOverlayActive = true;
+  const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
+  const keys = keyResponse.keys || [];
+  if (!keys.length) {
+    encryptOverlayActive = false;
+    clearEncryptPrompt();
+    requestUnlock();
+    return;
+  }
+  await showOverlay('encrypt', anchor || editable.getBoundingClientRect());
+  setupEncryptOverlayDismiss();
+  sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', keys, prefill });
+}
+
+async function handleOverlayEncryptRequest(plaintext: string, keyId: string) {
+  if (!keyId) {
+    sendOverlayMessage('encrypt', { type: 'encrypt-result', error: 'No key selected' });
+    return;
+  }
+  try {
+    const resp = await sendMessageSafe({
+      type: 'ENCRYPT_MESSAGE',
+      payload: { plaintext, keyId },
+    });
+    if (isLockedError(resp?.error)) {
+      hideOverlay('encrypt');
+      requestUnlock();
+      return;
+    }
+    if (resp?.encrypted) {
+      const cipher = resp.encrypted.startsWith(QUACK_PREFIX)
+        ? resp.encrypted
+        : `${QUACK_PREFIX}${resp.encrypted}`;
+      sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher });
+    } else {
+      sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
+    }
+  } catch (err) {
+    console.error('Overlay encrypt error', err);
+    sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
+  }
 }
 
 /**
@@ -86,15 +452,16 @@ function setupInputDetection() {
     setActiveEditable(editable);
     const value = getElementValue(editable);
 
-    // Inline encryption trigger: __plaintext__
-    const underlineMatch = value.match(/__(.+?)__/);
-    if (underlineMatch) {
-      const plaintext = underlineMatch[1];
-      showInlineEncryptPrompt(editable, plaintext, underlineMatch[0]);
-    }
-
     if (value.endsWith('Quack://')) {
       showSecureComposePrompt(editable);
+    }
+
+    const encryptMatch = findEncryptTrigger(value);
+    if (encryptMatch && !encryptOverlayActive) {
+      const anchorRect = getTriggerAnchorRect(editable, encryptMatch.index, encryptMatch.token.length);
+      showEncryptPrompt(editable, encryptMatch.token, encryptMatch.index, anchorRect);
+    } else if (!encryptMatch) {
+      clearEncryptPrompt();
     }
 
     updateInlineHighlight(editable, value);
@@ -220,96 +587,6 @@ function showSecureComposePrompt(inputElement: HTMLElement) {
   
   // Auto-dismiss after 10 seconds
   setTimeout(() => prompt.remove(), 10000);
-}
-
-/**
- * Inline encrypt prompt for __text__
- */
-function showInlineEncryptPrompt(inputElement: HTMLElement, plaintext: string, token: string) {
-  // Remove existing prompt if any
-  const existing = document.querySelector('.quack-inline-encrypt');
-  if (existing) existing.remove();
-
-  const rect = inputElement.getBoundingClientRect();
-  const prompt = document.createElement('div');
-  prompt.className = 'quack-inline-encrypt';
-  prompt.innerHTML = `
-    <div style="
-      position: fixed;
-      left: ${rect.left}px;
-      top: ${rect.bottom + 5}px;
-      background: #1f2937;
-      color: white;
-      padding: 8px 12px;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-      z-index: 999999;
-      font-family: system-ui;
-      font-size: 13px;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    ">
-      <span>Encrypt detected text?</span>
-      <button class="quack-inline-encrypt-btn" style="
-        background: #ea711a;
-        color: white;
-        border: none;
-        padding: 4px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-weight: 600;
-      ">Encrypt</button>
-      <button class="quack-inline-encrypt-cancel" style="
-        background: transparent;
-        color: white;
-        border: 1px solid #fff;
-        padding: 4px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-      ">Dismiss</button>
-    </div>
-  `;
-
-  document.body.appendChild(prompt);
-
-  prompt.querySelector('.quack-inline-encrypt-btn')?.addEventListener('click', async () => {
-    try {
-      // get keys
-      const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
-      const firstKey = keyResponse.keys?.[0];
-      if (!firstKey) {
-        showNotification('❌ No keys available. Create a key first.');
-        prompt.remove();
-        return;
-      }
-
-      const encryptedResp = await sendMessageSafe({
-        type: 'ENCRYPT_MESSAGE',
-        payload: { plaintext, keyId: firstKey.id },
-      });
-
-      if (encryptedResp?.encrypted) {
-        const current = getElementValue(inputElement);
-        const replaced = current.replace(token, encryptedResp.encrypted);
-        setElementValue(inputElement, replaced);
-        showNotification('✅ Encrypted and replaced');
-      } else {
-        showNotification('❌ Encryption failed');
-      }
-    } catch (err) {
-      console.error('Inline encryption error', err);
-      showNotification('❌ Encryption failed');
-    } finally {
-      prompt.remove();
-    }
-  });
-
-  prompt.querySelector('.quack-inline-encrypt-cancel')?.addEventListener('click', () => {
-    prompt.remove();
-  });
-
-  setTimeout(() => prompt.remove(), 8000);
 }
 
 /**
@@ -740,13 +1017,140 @@ function cleanupInlineHighlight() {
   lastInlineSignature = null;
 }
 
+function findEncryptTrigger(value: string): { token: string; index: number } | null {
+  const regex = new RegExp(ENCRYPT_TRIGGER_PATTERNS);
+  let match: RegExpExecArray | null = null;
+  let current: RegExpExecArray | null;
+  while ((current = regex.exec(value)) !== null) {
+    match = current;
+  }
+  if (!match) return null;
+  return { token: match[1], index: match.index };
+}
+
+function getRangeForOffset(root: HTMLElement, start: number, length: number): Range | null {
+  if (start < 0 || length <= 0) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = start;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const textNode = node as Text;
+    const text = textNode.textContent || '';
+    if (remaining <= text.length) {
+      const range = document.createRange();
+      const rangeStart = Math.max(0, remaining);
+      const rangeEnd = Math.min(text.length, rangeStart + length);
+      range.setStart(textNode, rangeStart);
+      range.setEnd(textNode, rangeEnd);
+      return range;
+    }
+    remaining -= text.length;
+  }
+  return null;
+}
+
+function getTriggerAnchorRect(editable: HTMLElement, start: number, length: number): DOMRect {
+  if (editable.isContentEditable) {
+    const range = getRangeForOffset(editable, start, length);
+    if (range) {
+      const rects = range.getClientRects();
+      if (rects.length > 0) return rects[0];
+      const rect = range.getBoundingClientRect();
+      if (rect) return rect;
+    }
+  }
+  return editable.getBoundingClientRect();
+}
+
+function clearEncryptPrompt() {
+  if (encryptPromptEl) {
+    encryptPromptEl.remove();
+  }
+  encryptPromptEl = null;
+  encryptTriggerEditable = null;
+  encryptTriggerIndex = null;
+  encryptTriggerToken = null;
+  if (encryptPromptCleanup) {
+    encryptPromptCleanup();
+    encryptPromptCleanup = null;
+  }
+}
+
+function showEncryptPrompt(
+  editable: HTMLElement,
+  token: string,
+  index: number,
+  anchorRect: DOMRect | null
+) {
+  if (encryptOverlayActive) return;
+  const anchor = anchorRect || editable.getBoundingClientRect();
+  if (
+    encryptPromptEl &&
+    encryptTriggerEditable === editable &&
+    encryptTriggerIndex === index &&
+    encryptTriggerToken === token
+  ) {
+    positionCard(anchor, encryptPromptEl);
+    return;
+  }
+
+  clearEncryptPrompt();
+  const card = document.createElement('div');
+  card.className = 'quack-selection-card';
+  card.innerHTML = `
+    <button class="quack-card-btn quack-card-primary" aria-label="Encrypt with Quack">Duck it</button>
+    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss encrypt prompt">Dismiss</button>
+  `;
+
+  const handleOutside = (evt: PointerEvent) => {
+    const target = evt.target as Node | null;
+    if (target && card.contains(target)) return;
+    clearEncryptPrompt();
+  };
+  const handleKeydown = (evt: KeyboardEvent) => {
+    if (evt.key === 'Escape') {
+      clearEncryptPrompt();
+    }
+  };
+  document.addEventListener('pointerdown', handleOutside, true);
+  document.addEventListener('keydown', handleKeydown, true);
+  encryptPromptCleanup = () => {
+    document.removeEventListener('pointerdown', handleOutside, true);
+    document.removeEventListener('keydown', handleKeydown, true);
+  };
+
+  card.addEventListener('mouseenter', () => {
+    // Keep visible while hovered; no auto-dismiss timer
+  });
+  card.addEventListener('mouseleave', () => {
+    // Visibility managed by outside click/esc
+  });
+
+  card.querySelector('.quack-card-primary')?.addEventListener('click', () => {
+    clearEncryptPrompt();
+    openEncryptBubble('', anchor, editable, token, index).catch(err => {
+      console.error('Encrypt overlay error', err);
+    });
+  });
+  card.querySelector('.quack-card-secondary')?.addEventListener('click', () => {
+    clearEncryptPrompt();
+  });
+
+  encryptPromptEl = card;
+  encryptTriggerEditable = editable;
+  encryptTriggerIndex = index;
+  encryptTriggerToken = token;
+  document.body.appendChild(card);
+  positionCard(anchor, card);
+}
+
 function scheduleInlineHide() {
   if (inlineHideTimer) clearTimeout(inlineHideTimer);
   inlineHideTimer = setTimeout(() => {
     inlineHideTimer = null;
     if (inlineHovering) return;
     removeInlineCardOnly();
-  }, 1300);
+  }, 1000);
 }
 
 function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: string }, underlineEl: HTMLElement) {
@@ -766,8 +1170,8 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
   inlineCardEl = document.createElement('div');
   inlineCardEl.className = 'quack-selection-card';
   inlineCardEl.innerHTML = `
-    <button class="quack-card-btn quack-card-primary" aria-label="Decrypt with Quack">🦆 Duck it</button>
-    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss action">🗑️ Dismiss</button>
+    <button class="quack-card-btn quack-card-primary" aria-label="Decrypt with Quack">Quack?</button>
+    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss action">Dismiss</button>
   `;
 
   inlineCardEl.addEventListener('mouseenter', () => {
@@ -791,20 +1195,9 @@ function showInlineCardFor(item: { rect: DOMRect; encrypted: string; matchId: st
 
   inlineCardEl.querySelector('.quack-card-primary')?.addEventListener('click', async () => {
     if (!inlineEncrypted) return;
-    try {
-      const response = await sendMessageSafe({
-        type: 'DECRYPT_MESSAGE',
-        payload: { ciphertext: inlineEncrypted },
-      });
-      if (response.plaintext) {
-        showNotification(`✅ Decrypted: ${response.plaintext.substring(0, 50)}...`);
-      } else {
-        showNotification('❌ Could not decrypt message');
-      }
-    } catch (error) {
-      console.error('Inline decryption error:', error);
-      showNotification('❌ Decryption failed');
-    }
+    setActiveCipherHighlight(item.matchId);
+    const anchorRect = getAnchorRectForMatch(item.matchId, item.rect);
+    await openDecryptBubble(inlineEncrypted, anchorRect);
     cleanupInlineHighlight();
   });
 
@@ -901,22 +1294,23 @@ function injectSelectionStyles() {
       position: fixed;
       background: #ffffff;
       color: #111827;
-      border-radius: 12px;
-      padding: 8px;
+      border-radius: 6px;
+      padding: 4px 6px;
       border: 1px solid #e5e7eb;
-      box-shadow: 0 12px 30px rgba(17, 24, 39, 0.12);
+      box-shadow: none;
       z-index: 1000000;
-      width: 120px;
+      min-width: 150px;
       display: flex;
-      flex-direction: column;
-      gap: 6px;
+      flex-direction: row;
+      gap: 4px;
+      align-items: center;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 14px;
+      font-size: 13px;
     }
     .quack-card-btn {
       border: 1px solid transparent;
-      border-radius: 10px;
-      padding: 8px 10px;
+      border-radius: 6px;
+      padding: 6px 8px;
       cursor: pointer;
       font-weight: 700;
       transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
@@ -927,6 +1321,7 @@ function injectSelectionStyles() {
       justify-content: flex-start;
       line-height: 1.2;
       white-space: normal;
+      box-shadow: none;
     }
     .quack-card-btn:focus-visible {
       outline: 2px solid #ea711a;
@@ -935,11 +1330,11 @@ function injectSelectionStyles() {
     .quack-card-primary {
       background: #ea711a;
       color: #ffffff;
-      box-shadow: 0 10px 18px rgba(234, 113, 26, 0.18);
+      box-shadow: none;
     }
     .quack-card-primary:hover {
       background: #db5810;
-      box-shadow: 0 12px 22px rgba(219, 88, 16, 0.24);
+      box-shadow: none;
     }
     .quack-card-secondary {
       background: #ffffff;
