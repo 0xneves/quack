@@ -7,7 +7,10 @@
     "dev": "vite build --mode development --watch",
     "build": "tsc && vite build && vite build --config vite.content.config.ts",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest",
+    "test:watch": "NODE_OPTIONS='--experimental-vm-modules' jest --watch",
+    "test:verbose": "NODE_OPTIONS='--experimental-vm-modules' jest --verbose"
   },
   "dependencies": {
     "mlkem": "^2.5.0",
@@ -16,6 +19,7 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
+    "@types/jest": "^29.5.12",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^7.13.1",
@@ -25,8 +29,11 @@
     "eslint": "^8.57.0",
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.7",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^30.2.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
+    "ts-jest": "^29.1.2",
     "typescript": "^5.5.2",
     "vite": "^5.3.1",
     "vite-plugin-static-copy": "^1.0.6"
