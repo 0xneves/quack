@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import type { VaultData, ContactKey } from '@/types';
-import { isContactKey } from '@/types';
-import { getContactKeys, getPersonalKeys } from '@/storage/vault';
-import { encryptToContact } from '@/crypto/message';
+import type { VaultData, QuackGroup } from '@/types';
+import { getGroups } from '@/storage/vault';
+import { encryptGroupMessage } from '@/crypto/group';
 
 interface SecureComposeScreenProps {
   vaultData: VaultData;
@@ -11,23 +10,12 @@ interface SecureComposeScreenProps {
 
 function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
   const [message, setMessage] = useState('');
-  const [selectedRecipientId, setSelectedRecipientId] = useState<string>('');
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [isEncrypting, setIsEncrypting] = useState(false);
   const [encrypted, setEncrypted] = useState<string | null>(null);
-  const [recipientName, setRecipientName] = useState<string>('');
+  const [selectedGroup, setSelectedGroup] = useState<QuackGroup | null>(null);
 
-  const contacts = getContactKeys(vaultData);
-  const personalKeys = getPersonalKeys(vaultData);
-  
-  // Can also encrypt to yourself (for testing or self-notes)
-  const allRecipients = [
-    ...contacts,
-    ...personalKeys.map(pk => ({
-      ...pk,
-      type: 'contact' as const, // Treat personal key as contact for encryption
-      name: `${pk.name} (yourself)`,
-    }))
-  ];
+  const groups = getGroups(vaultData);
 
   async function handleEncrypt() {
     if (!message.trim()) {
@@ -35,35 +23,23 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
       return;
     }
 
-    if (!selectedRecipientId) {
-      alert('Please select a recipient');
+    if (!selectedGroupId) {
+      alert('Please select a group');
       return;
     }
 
     setIsEncrypting(true);
 
     try {
-      // Find the recipient key
-      const recipient = vaultData.keys.find(k => k.id === selectedRecipientId);
-      if (!recipient) throw new Error('Recipient not found');
+      // Find the selected group
+      const group = groups.find(g => g.id === selectedGroupId);
+      if (!group) throw new Error('Group not found');
 
-      // Convert to ContactKey format for encryption
-      const contactKey: ContactKey = isContactKey(recipient) 
-        ? recipient 
-        : {
-            id: recipient.id,
-            name: recipient.name,
-            type: 'contact' as const,
-            publicKey: recipient.publicKey,
-            fingerprint: recipient.fingerprint,
-            shortFingerprint: recipient.shortFingerprint,
-            createdAt: recipient.createdAt,
-          };
-
-      const encryptedMessage = await encryptToContact(message, contactKey);
+      // Encrypt to the group
+      const encryptedMessage = await encryptGroupMessage(message, group);
 
       setEncrypted(encryptedMessage);
-      setRecipientName(recipient.name);
+      setSelectedGroup(group);
 
       // Copy to clipboard
       await navigator.clipboard.writeText(encryptedMessage);
@@ -84,10 +60,11 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
   function handleNew() {
     setMessage('');
     setEncrypted(null);
-    setRecipientName('');
+    setSelectedGroup(null);
   }
 
-  if (encrypted) {
+  // Success screen after encryption
+  if (encrypted && selectedGroup) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -108,7 +85,7 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
               Message Encrypted!
             </h2>
             <p className="text-gray-600 mb-2">
-              Encrypted for: <strong>{recipientName}</strong>
+              Encrypted to group: <strong>{selectedGroup.emoji || '👥'} {selectedGroup.name}</strong>
             </p>
             <p className="text-gray-500 text-sm mb-6">
               Copied to clipboard
@@ -144,8 +121,8 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
 
           <div className="mt-6 bg-blue-50 border-l-4 border-blue-400 p-4">
             <p className="text-blue-700 text-sm">
-              <strong>💡 Tip:</strong> Paste this encrypted message anywhere. 
-              Only <strong>{recipientName}</strong> can decrypt it with their private key.
+              <strong>💡 Tip:</strong> Paste this encrypted message anywhere (Twitter, Discord, Email...). 
+              Only members of <strong>{selectedGroup.emoji || '👥'} {selectedGroup.name}</strong> can decrypt it.
             </p>
           </div>
         </div>
@@ -153,6 +130,7 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
     );
   }
 
+  // Compose screen
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
@@ -174,37 +152,56 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
           </p>
         </div>
 
+        {/* Group selector */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            To (Recipient)
+            Encrypt to Group
           </label>
-          <select
-            value={selectedRecipientId}
-            onChange={(e) => setSelectedRecipientId(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-quack-500 focus:border-transparent outline-none"
-          >
-            <option value="">Select recipient...</option>
-            {contacts.length > 0 && (
-              <optgroup label="Contacts">
-                {contacts.map((contact) => (
-                  <option key={contact.id} value={contact.id}>
-                    👤 {contact.name} ({contact.shortFingerprint})
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {personalKeys.length > 0 && (
-              <optgroup label="Self (for testing)">
-                {personalKeys.map((key) => (
-                  <option key={key.id} value={key.id}>
-                    🔐 {key.name} (yourself)
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+          {groups.length > 0 ? (
+            <select
+              value={selectedGroupId}
+              onChange={(e) => setSelectedGroupId(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-quack-500 focus:border-transparent outline-none"
+            >
+              <option value="">Select a group...</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.emoji || '👥'} {group.name} ({group.shortFingerprint})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-yellow-800 text-sm">
+                <strong>⚠️ No groups yet!</strong>
+              </p>
+              <p className="text-yellow-700 text-sm mt-1">
+                Create a group first, then you can encrypt messages to share with its members.
+              </p>
+            </div>
+          )}
         </div>
 
+        {/* Selected group info */}
+        {selectedGroupId && (
+          <div className="bg-quack-50 border border-quack-200 rounded-lg p-4">
+            {(() => {
+              const group = groups.find(g => g.id === selectedGroupId);
+              if (!group) return null;
+              return (
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">{group.emoji || '👥'}</span>
+                  <div>
+                    <p className="font-semibold text-gray-900">{group.name}</p>
+                    <p className="text-sm text-gray-500 font-mono">{group.shortFingerprint}</p>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Message input */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Your Message
@@ -217,19 +214,15 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
             rows={8}
             autoFocus
           />
+          <p className="text-xs text-gray-500 mt-1 text-right">
+            {message.length} characters
+          </p>
         </div>
 
-        {allRecipients.length === 0 && (
-          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
-            <p className="text-yellow-700 text-sm">
-              <strong>⚠️ No recipients:</strong> Add a contact first, or generate your own identity key to test encryption.
-            </p>
-          </div>
-        )}
-
+        {/* Encrypt button */}
         <button
           onClick={handleEncrypt}
-          disabled={isEncrypting || !selectedRecipientId || !message.trim()}
+          disabled={isEncrypting || !selectedGroupId || !message.trim()}
           className="w-full bg-quack-500 hover:bg-quack-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {isEncrypting ? (
@@ -239,11 +232,20 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
           )}
         </button>
 
+        {/* Info box */}
         <div className="bg-gray-50 border-l-4 border-gray-300 p-4">
           <p className="text-gray-600 text-sm">
-            <strong>How it works:</strong> Your message is encrypted using the recipient's 
-            public key with ML-KEM (post-quantum secure). Only they can decrypt it.
+            <strong>How it works:</strong> Your message is encrypted using AES-256-GCM with the 
+            group's shared key. Anyone in the group can decrypt it — nobody else can.
           </p>
+        </div>
+
+        {/* Post-quantum badge */}
+        <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+          <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">
+            🛡️ Post-Quantum Secure
+          </span>
+          <span>Group keys are shared via ML-KEM-768</span>
         </div>
       </div>
     </div>
