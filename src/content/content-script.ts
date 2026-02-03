@@ -9,7 +9,7 @@
  * - Viewport-based performance optimization
  */
 
-import { QUACK_PREFIX, MAX_AUTO_DECRYPTS } from '@/utils/constants';
+import { QUACK_PREFIX, QUACK_MSG_PREFIX, QUACK_MSG_REGEX, MAX_AUTO_DECRYPTS } from '@/utils/constants';
 import { debounce, isEditableElement, getElementValue, setElementValue } from '@/utils/helpers';
 
 console.log('🦆 Quack content script loaded');
@@ -328,11 +328,11 @@ function handleOverlayPortMessage(kind: OverlayKind, event: MessageEvent) {
   }
 }
 
-async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
+async function openDecryptBubble(encryptedMessage: string, anchor: DOMRect) {
   try {
     const response = await sendMessageSafe({
       type: 'DECRYPT_MESSAGE',
-      payload: { ciphertext },
+      payload: { encryptedMessage },
     });
     if (isLockedError(response?.error)) {
       hideOverlay('decrypt');
@@ -344,7 +344,7 @@ async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
     if (response.plaintext) {
       sendOverlayMessage('decrypt', {
         type: 'open-decrypt',
-        ciphertext,
+        ciphertext: encryptedMessage,
         plaintext: response.plaintext,
         keyName: response.keyName,
         quackOverlay: true,
@@ -352,7 +352,7 @@ async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
     } else {
       sendOverlayMessage('decrypt', {
         type: 'open-decrypt',
-        ciphertext,
+        ciphertext: encryptedMessage,
         plaintext: '',
         error: response.error || 'Could not decrypt message',
         quackOverlay: true,
@@ -362,7 +362,7 @@ async function openDecryptBubble(ciphertext: string, anchor: DOMRect) {
     console.error('Inline decryption error:', error);
     sendOverlayMessage('decrypt', {
       type: 'open-decrypt',
-      ciphertext,
+      ciphertext: encryptedMessage,
       plaintext: '',
       error: 'Decryption failed',
       quackOverlay: true,
@@ -661,7 +661,7 @@ function scanElement(element: HTMLElement, observer: IntersectionObserver) {
   let node;
   while ((node = walker.nextNode())) {
     const text = node.textContent || '';
-    if (text.includes(QUACK_PREFIX)) {
+    if (text.includes(QUACK_MSG_PREFIX)) {
       const parent = node.parentElement;
       if (parent && !processedElements.has(parent) && !isWithinEditable(parent)) {
         observer.observe(parent);
@@ -694,7 +694,7 @@ async function processElement(element: HTMLElement) {
   
   // Extract encrypted text
   const text = element.textContent || '';
-  const match = text.match(new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`));
+  const match = text.match(new RegExp(QUACK_MSG_REGEX.source));
   
   if (!match) return;
   
@@ -704,7 +704,7 @@ async function processElement(element: HTMLElement) {
   try {
     const response = await sendMessageSafe({
       type: 'DECRYPT_MESSAGE',
-      payload: { ciphertext: encrypted },
+      payload: { encryptedMessage: encrypted },
     });
     
     if (response.blacklisted) {
@@ -809,7 +809,7 @@ function addManualDecryptButton(element: HTMLElement) {
   button.onclick = async () => {
     console.log('🦆 decrypt button clicked');
     const text = element.textContent || '';
-    const match = text.match(new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`));
+    const match = text.match(new RegExp(QUACK_MSG_REGEX.source));
     
     if (!match) {
       showNotification('❌ No encrypted text found');
@@ -823,7 +823,7 @@ function addManualDecryptButton(element: HTMLElement) {
       console.log('🦆 sending decrypt request', encrypted);
     const response = await sendMessageSafe({
       type: 'DECRYPT_MESSAGE',
-      payload: { ciphertext: encrypted },
+      payload: { encryptedMessage: encrypted },
     });
       
       if (response.plaintext) {
@@ -926,7 +926,8 @@ function updateInlineHighlight(target: HTMLElement, value: string) {
 }
 
 function collectQuackMatches(value: string): string[] {
-  const regex = new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`, 'g');
+  // Match new format: Quack://MSG:[fingerprint]:[kyber_ct]:[aes_data]:[iv]
+  const regex = new RegExp(QUACK_MSG_REGEX.source, 'g');
   const found: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = regex.exec(value)) !== null) {
@@ -1226,7 +1227,7 @@ function getQuackRects(element: HTMLElement, matches: string[]): Array<{ rect: D
 
 function getRectsFromContentEditable(element: HTMLElement, _matches: string[]): Array<{ rect: DOMRect; encrypted: string; matchId: string }> {
   const items: Array<{ rect: DOMRect; encrypted: string; matchId: string }> = [];
-  const regex = new RegExp(`${QUACK_PREFIX}[A-Za-z0-9+/=]+`, 'g');
+  const regex = new RegExp(QUACK_MSG_REGEX.source, 'g');
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
   let matchCounter = 0;
   let node: Node | null;

@@ -2,9 +2,16 @@
  * Quack - Application Constants
  */
 
-// Encryption Constants
+// Message Format Constants
+// New format: Quack://MSG:[fingerprint]:[kyber_ct]:[aes_data]:[iv]
+// Key format: Quack://KEY:[public_key_base64]
 export const QUACK_PREFIX = 'Quack://';
-export const QUACK_PREFIX_REGEX = /Quack:\/\/[A-Za-z0-9+/=]+/g;
+export const QUACK_MSG_PREFIX = 'Quack://MSG:';
+export const QUACK_KEY_PREFIX = 'Quack://KEY:';
+export const QUACK_MSG_REGEX = /Quack:\/\/MSG:[A-Fa-f0-9]{8}:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+/g;
+export const QUACK_KEY_REGEX = /Quack:\/\/KEY:[A-Za-z0-9+/=]+/g;
+// Legacy format for backward compatibility
+export const QUACK_LEGACY_REGEX = /Quack:\/\/[A-Za-z0-9+/=]+/g;
 
 // Cryptography Parameters
 export const AES_KEY_SIZE = 256;
@@ -30,6 +37,7 @@ export const DEFAULT_SETTINGS = {
   darkMode: false,
   showNotifications: true,
   maxAutoDecrypts: MAX_AUTO_DECRYPTS,
+  debugMode: false,
 };
 
 // Extension Colors (matching Tailwind theme)

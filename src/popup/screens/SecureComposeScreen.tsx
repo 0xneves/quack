@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import type { VaultData } from '@/types';
-import { importAESKey, encryptMessage } from '@/crypto/aes';
+import type { VaultData, ContactKey } from '@/types';
+import { isContactKey } from '@/types';
+import { getContactKeys, getPersonalKeys } from '@/storage/vault';
+import { encryptToContact } from '@/crypto/message';
 
 interface SecureComposeScreenProps {
   vaultData: VaultData;
@@ -9,11 +11,23 @@ interface SecureComposeScreenProps {
 
 function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
   const [message, setMessage] = useState('');
-  const [selectedKeyId, setSelectedKeyId] = useState<string>(
-    vaultData.keys[0]?.id || ''
-  );
+  const [selectedRecipientId, setSelectedRecipientId] = useState<string>('');
   const [isEncrypting, setIsEncrypting] = useState(false);
   const [encrypted, setEncrypted] = useState<string | null>(null);
+  const [recipientName, setRecipientName] = useState<string>('');
+
+  const contacts = getContactKeys(vaultData);
+  const personalKeys = getPersonalKeys(vaultData);
+  
+  // Can also encrypt to yourself (for testing or self-notes)
+  const allRecipients = [
+    ...contacts,
+    ...personalKeys.map(pk => ({
+      ...pk,
+      type: 'contact' as const, // Treat personal key as contact for encryption
+      name: `${pk.name} (yourself)`,
+    }))
+  ];
 
   async function handleEncrypt() {
     if (!message.trim()) {
@@ -21,26 +35,40 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
       return;
     }
 
-    if (!selectedKeyId) {
-      alert('Please select a key');
+    if (!selectedRecipientId) {
+      alert('Please select a recipient');
       return;
     }
 
     setIsEncrypting(true);
 
     try {
-      const key = vaultData.keys.find(k => k.id === selectedKeyId);
-      if (!key) throw new Error('Key not found');
+      // Find the recipient key
+      const recipient = vaultData.keys.find(k => k.id === selectedRecipientId);
+      if (!recipient) throw new Error('Recipient not found');
 
-      const aesKey = await importAESKey(key.aesKeyMaterial);
-      const encryptedMessage = await encryptMessage(message, aesKey);
+      // Convert to ContactKey format for encryption
+      const contactKey: ContactKey = isContactKey(recipient) 
+        ? recipient 
+        : {
+            id: recipient.id,
+            name: recipient.name,
+            type: 'contact' as const,
+            publicKey: recipient.publicKey,
+            fingerprint: recipient.fingerprint,
+            shortFingerprint: recipient.shortFingerprint,
+            createdAt: recipient.createdAt,
+          };
+
+      const encryptedMessage = await encryptToContact(message, contactKey);
 
       setEncrypted(encryptedMessage);
+      setRecipientName(recipient.name);
 
       // Copy to clipboard
       await navigator.clipboard.writeText(encryptedMessage);
 
-      // Notify background script to blacklist this message
+      // Notify background script
       chrome.runtime.sendMessage({
         type: 'ENCRYPTED_MESSAGE_READY',
         payload: { encrypted: encryptedMessage },
@@ -56,6 +84,7 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
   function handleNew() {
     setMessage('');
     setEncrypted(null);
+    setRecipientName('');
   }
 
   if (encrypted) {
@@ -78,12 +107,15 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               Message Encrypted!
             </h2>
-            <p className="text-gray-600 mb-6">
-              Your encrypted message has been copied to clipboard
+            <p className="text-gray-600 mb-2">
+              Encrypted for: <strong>{recipientName}</strong>
+            </p>
+            <p className="text-gray-500 text-sm mb-6">
+              Copied to clipboard
             </p>
 
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <p className="text-xs font-mono text-gray-800 break-all">
+            <div className="bg-gray-50 rounded-lg p-4 mb-6 max-h-32 overflow-auto">
+              <p className="text-xs font-mono text-gray-800 break-all text-left">
                 {encrypted}
               </p>
             </div>
@@ -112,8 +144,8 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
 
           <div className="mt-6 bg-blue-50 border-l-4 border-blue-400 p-4">
             <p className="text-blue-700 text-sm">
-              <strong>💡 Tip:</strong> Paste this encrypted message anywhere on the web.
-              Others with the same key will see it decrypted automatically!
+              <strong>💡 Tip:</strong> Paste this encrypted message anywhere. 
+              Only <strong>{recipientName}</strong> can decrypt it with their private key.
             </p>
           </div>
         </div>
@@ -144,6 +176,37 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
+            To (Recipient)
+          </label>
+          <select
+            value={selectedRecipientId}
+            onChange={(e) => setSelectedRecipientId(e.target.value)}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-quack-500 focus:border-transparent outline-none"
+          >
+            <option value="">Select recipient...</option>
+            {contacts.length > 0 && (
+              <optgroup label="Contacts">
+                {contacts.map((contact) => (
+                  <option key={contact.id} value={contact.id}>
+                    👤 {contact.name} ({contact.shortFingerprint})
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {personalKeys.length > 0 && (
+              <optgroup label="Self (for testing)">
+                {personalKeys.map((key) => (
+                  <option key={key.id} value={key.id}>
+                    🔐 {key.name} (yourself)
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
             Your Message
           </label>
           <textarea
@@ -156,38 +219,17 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Encrypt with key
-          </label>
-          <select
-            value={selectedKeyId}
-            onChange={(e) => setSelectedKeyId(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-quack-500 focus:border-transparent outline-none"
-          >
-            {vaultData.keys.length === 0 ? (
-              <option value="">No keys available</option>
-            ) : (
-              vaultData.keys.map((key) => (
-                <option key={key.id} value={key.id}>
-                  🔑 {key.name}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        {vaultData.keys.length === 0 && (
+        {allRecipients.length === 0 && (
           <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
             <p className="text-yellow-700 text-sm">
-              <strong>⚠️ No keys:</strong> Generate an encryption key first from the dashboard.
+              <strong>⚠️ No recipients:</strong> Add a contact first, or generate your own identity key to test encryption.
             </p>
           </div>
         )}
 
         <button
           onClick={handleEncrypt}
-          disabled={isEncrypting || vaultData.keys.length === 0}
+          disabled={isEncrypting || !selectedRecipientId || !message.trim()}
           className="w-full bg-quack-500 hover:bg-quack-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {isEncrypting ? (
@@ -196,10 +238,16 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
             <>🦆 Encrypt & Copy</>
           )}
         </button>
+
+        <div className="bg-gray-50 border-l-4 border-gray-300 p-4">
+          <p className="text-gray-600 text-sm">
+            <strong>How it works:</strong> Your message is encrypted using the recipient's 
+            public key with ML-KEM (post-quantum secure). Only they can decrypt it.
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
 export default SecureComposeScreen;
-

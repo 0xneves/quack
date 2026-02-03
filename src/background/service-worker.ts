@@ -3,16 +3,16 @@
  * 
  * Handles:
  * - Message passing between content scripts and popup
- * - Encryption/decryption operations
+ * - Encryption/decryption operations using ML-KEM + AES-GCM
  * - Vault session management
  * - Auto-lock functionality
  */
 
-import type { Message, VaultData } from '@/types';
-import { unlockVault, getDecryptionKeys } from '@/storage/vault';
+import type { Message, VaultData, ContactKey, EncryptMessagePayload, DecryptMessagePayload, ImportKeyPayload } from '@/types';
+import { isPersonalKey, isContactKey } from '@/types';
+import { unlockVault, getKeyById, getPersonalKeys, getContactKeys, createContactKey, addKeyToVault, saveVault, parseKeyString, exportPublicKey } from '@/storage/vault';
 import { getSession, shouldAutoLock, markVaultLocked } from '@/storage/settings';
-import { encryptMessage, decryptWithKeys } from '@/crypto/aes';
-import { importAESKey } from '@/crypto/aes';
+import { encryptToContact, decryptMessage } from '@/crypto/message';
 
 // In-memory vault data (cleared when service worker restarts)
 let cachedVaultData: VaultData | null = null;
@@ -47,11 +47,26 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
     case 'GET_KEYS':
       return await handleGetKeys();
       
+    case 'GET_PERSONAL_KEY':
+      return handleGetPersonalKey();
+      
+    case 'GET_CONTACTS':
+      return handleGetContacts();
+      
     case 'ENCRYPT_MESSAGE':
-      return await handleEncryptMessage(message.payload as { plaintext: string; keyId: string });
+      return await handleEncryptMessage(message.payload as EncryptMessagePayload);
       
     case 'DECRYPT_MESSAGE':
-      return await handleDecryptMessage(message.payload as { ciphertext: string });
+      return await handleDecryptMessage(message.payload as DecryptMessagePayload);
+      
+    case 'ADD_CONTACT':
+      return await handleAddContact(message.payload as ImportKeyPayload);
+      
+    case 'EXPORT_KEY':
+      return handleExportKey(message.payload as { keyId: string });
+      
+    case 'IMPORT_KEY':
+      return await handleImportKey(message.payload as ImportKeyPayload);
       
     case 'CACHE_VAULT':
       return await handleCacheVault(message.payload as { masterPassword: string });
@@ -61,6 +76,7 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
       
     case 'ENCRYPTED_MESSAGE_READY':
       return { success: true };
+      
     case 'OPEN_UNLOCK':
       return await openUnlockWindow();
       
@@ -87,21 +103,61 @@ async function handleVaultStatus() {
 }
 
 /**
- * Get available keys for decryption
+ * Get all keys (personal + contacts) for UI display
  */
 async function handleGetKeys() {
   if (!cachedVaultData) {
-    return { keys: [] };
+    return { keys: [], personal: [], contacts: [] };
   }
   
-  const keys = await getDecryptionKeys(cachedVaultData);
-  return { keys };
+  return { 
+    keys: cachedVaultData.keys,
+    personal: getPersonalKeys(cachedVaultData),
+    contacts: getContactKeys(cachedVaultData)
+  };
 }
 
 /**
- * Encrypt message with specified key
+ * Get primary personal key info
  */
-async function handleEncryptMessage(payload: { plaintext: string; keyId: string }) {
+function handleGetPersonalKey() {
+  if (!cachedVaultData) {
+    return { key: null };
+  }
+  
+  const personalKeys = getPersonalKeys(cachedVaultData);
+  if (personalKeys.length === 0) {
+    return { key: null };
+  }
+  
+  // Return first personal key (primary identity)
+  const key = personalKeys[0];
+  return {
+    key: {
+      id: key.id,
+      name: key.name,
+      fingerprint: key.fingerprint,
+      shortFingerprint: key.shortFingerprint,
+      createdAt: key.createdAt
+    }
+  };
+}
+
+/**
+ * Get all contacts for encryption target selection
+ */
+function handleGetContacts() {
+  if (!cachedVaultData) {
+    return { contacts: [] };
+  }
+  
+  return { contacts: getContactKeys(cachedVaultData) };
+}
+
+/**
+ * Encrypt message to a contact using their public key
+ */
+async function handleEncryptMessage(payload: EncryptMessagePayload) {
   if (!(await ensureUnlocked())) {
     throw new Error('Vault is locked');
   }
@@ -109,23 +165,35 @@ async function handleEncryptMessage(payload: { plaintext: string; keyId: string 
     throw new Error('Vault is locked');
   }
   
-  const key = cachedVaultData.keys.find(k => k.id === payload.keyId);
+  const { plaintext, recipientKeyId } = payload;
+  const key = getKeyById(recipientKeyId, cachedVaultData);
+  
   if (!key) {
-    throw new Error('Key not found');
+    throw new Error('Recipient key not found');
   }
   
-  const aesKey = await importAESKey(key.aesKeyMaterial);
-  const encrypted = await encryptMessage(payload.plaintext, aesKey);
-
+  // Can only encrypt TO contacts or TO yourself (self-encryption)
+  const contactKey: ContactKey = isContactKey(key) 
+    ? key 
+    : {
+        // Convert personal key to contact-like for encryption
+        id: key.id,
+        name: key.name,
+        type: 'contact' as const,
+        publicKey: key.publicKey,
+        fingerprint: key.fingerprint,
+        shortFingerprint: key.shortFingerprint,
+        createdAt: key.createdAt
+      };
+  
+  const encrypted = await encryptToContact(plaintext, contactKey);
   return { encrypted };
 }
 
 /**
- * Decrypt message with available keys
+ * Decrypt message using personal keys
  */
-async function handleDecryptMessage(payload: { ciphertext: string }) {
-  const { ciphertext } = payload;
-  
+async function handleDecryptMessage(payload: DecryptMessagePayload) {
   if (!(await ensureUnlocked())) {
     return { plaintext: null, error: 'Vault is locked' };
   }
@@ -133,18 +201,79 @@ async function handleDecryptMessage(payload: { ciphertext: string }) {
     return { plaintext: null, error: 'Vault is locked' };
   }
   
-  const keys = await getDecryptionKeys(cachedVaultData);
-  const result = await decryptWithKeys(ciphertext, keys);
+  const { encryptedMessage } = payload;
+  const personalKeys = getPersonalKeys(cachedVaultData);
+  
+  if (personalKeys.length === 0) {
+    return { plaintext: null, error: 'No personal key available' };
+  }
+  
+  const result = await decryptMessage(encryptedMessage, personalKeys);
   
   if (result) {
+    const key = getKeyById(result.keyId, cachedVaultData);
     return { 
       plaintext: result.plaintext, 
       keyId: result.keyId,
-      keyName: cachedVaultData.keys.find(k => k.id === result.keyId)?.name 
+      keyName: key?.name
     };
   }
   
   return { plaintext: null, error: 'No key could decrypt this message' };
+}
+
+/**
+ * Add a contact from a key string
+ */
+async function handleAddContact(payload: ImportKeyPayload) {
+  if (!(await ensureUnlocked()) || !cachedVaultData || !cachedMasterPassword) {
+    throw new Error('Vault is locked');
+  }
+  
+  const { keyString, name } = payload;
+  const parsed = parseKeyString(keyString);
+  
+  if (!parsed) {
+    throw new Error('Invalid key format. Expected: Quack://KEY:[public_key]');
+  }
+  
+  const contact = await createContactKey(name, parsed.publicKey);
+  cachedVaultData = await addKeyToVault(contact, cachedVaultData);
+  await saveVault(cachedVaultData, cachedMasterPassword);
+  
+  return { 
+    success: true, 
+    contact: {
+      id: contact.id,
+      name: contact.name,
+      fingerprint: contact.fingerprint,
+      shortFingerprint: contact.shortFingerprint
+    }
+  };
+}
+
+/**
+ * Export personal key for sharing (public key only)
+ */
+function handleExportKey(payload: { keyId: string }) {
+  if (!cachedVaultData) {
+    throw new Error('Vault is locked');
+  }
+  
+  const key = getKeyById(payload.keyId, cachedVaultData);
+  if (!key || !isPersonalKey(key)) {
+    throw new Error('Personal key not found');
+  }
+  
+  const exported = exportPublicKey(key);
+  return { keyString: exported, fingerprint: key.fingerprint };
+}
+
+/**
+ * Import a key (alias for ADD_CONTACT)
+ */
+async function handleImportKey(payload: ImportKeyPayload) {
+  return handleAddContact(payload);
 }
 
 /**
@@ -287,4 +416,3 @@ function createUnlockWindow(): Promise<void> {
     });
   });
 }
-
