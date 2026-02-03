@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { VaultData } from '@/types';
-import { getPersonalKeys } from '@/storage/vault';
+import { getPersonalKeys, getGroups } from '@/storage/vault';
 import { decryptMessage, isQuackMessage } from '@/crypto/message';
 
 interface ManualDecryptScreenProps {
@@ -16,11 +16,12 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
   const [isDecrypting, setIsDecrypting] = useState(false);
 
   const personalKeys = getPersonalKeys(vaultData);
+  const groups = getGroups(vaultData);
 
   function validateCipher(text: string) {
     if (!text.trim()) return 'Please paste an encrypted message';
     if (!isQuackMessage(text.trim())) {
-      return 'Message must start with Quack://MSG:';
+      return 'Message must start with Quack://';
     }
     return null;
   }
@@ -37,23 +38,31 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
       return;
     }
 
-    if (personalKeys.length === 0) {
-      setError('No identity keys available. Generate one first.');
+    if (groups.length === 0 && personalKeys.length === 0) {
+      setError('No groups or identity keys available.');
       return;
     }
 
     setIsDecrypting(true);
     try {
-      const result = await decryptMessage(trimmed, personalKeys);
+      // Try groups first, then fall back to personal keys (legacy)
+      const result = await decryptMessage(trimmed, groups, personalKeys);
 
       if (result === null) {
-        setError('Could not decrypt. This message may not be addressed to you, or your key has changed.');
+        setError('Could not decrypt. You may not be a member of the group this was encrypted for.');
         return;
       }
 
       setPlaintext(result.plaintext);
-      const key = personalKeys.find(k => k.id === result.keyId);
-      setDecryptedWith(key?.name || 'Unknown key');
+      
+      // Find what decrypted it
+      if (result.groupId) {
+        const group = groups.find(g => g.id === result.groupId);
+        setDecryptedWith(group?.name ? `🔐 ${group.name}` : 'Unknown group');
+      } else if (result.keyId) {
+        const key = personalKeys.find(k => k.id === result.keyId);
+        setDecryptedWith(key?.name || 'Unknown key');
+      }
     } catch (e) {
       console.error('Manual decrypt failed', e);
       setError('Decryption failed. The message may be corrupted.');
@@ -78,7 +87,7 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
       <div className="p-6 space-y-6">
         <div className="bg-blue-50 border-l-4 border-blue-400 p-4">
           <p className="text-blue-700 text-sm">
-            Paste an encrypted message (Quack://MSG:...) to decrypt it with your identity key.
+            Paste an encrypted message (Quack://...) to decrypt it with your groups or identity key.
           </p>
         </div>
 
@@ -90,23 +99,27 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
             value={ciphertext}
             onChange={(e) => setCiphertext(e.target.value)}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-quack-500 focus:border-transparent outline-none resize-none font-mono text-sm"
-            placeholder="Quack://MSG:..."
+            placeholder="Quack://..."
             rows={5}
           />
         </div>
 
-        {personalKeys.length === 0 && (
+        {groups.length === 0 && personalKeys.length === 0 && (
           <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
             <p className="text-yellow-700 text-sm">
-              <strong>⚠️ No identity:</strong> Generate an identity key in your dashboard
-              before decrypting messages.
+              <strong>⚠️ No groups:</strong> Create or join a group first to decrypt messages.
             </p>
           </div>
         )}
 
-        {personalKeys.length > 0 && (
+        {(groups.length > 0 || personalKeys.length > 0) && (
           <div className="text-sm text-gray-600">
-            Will try to decrypt with: {personalKeys.map(k => k.name).join(', ')}
+            {groups.length > 0 && (
+              <div>Groups: {groups.map(g => g.emoji ? `${g.emoji} ${g.name}` : g.name).join(', ')}</div>
+            )}
+            {personalKeys.length > 0 && (
+              <div className="mt-1 text-gray-500">Legacy keys: {personalKeys.map(k => k.name).join(', ')}</div>
+            )}
           </div>
         )}
 
@@ -136,7 +149,7 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
 
         <button
           onClick={handleDecrypt}
-          disabled={isDecrypting || personalKeys.length === 0}
+          disabled={isDecrypting || (groups.length === 0 && personalKeys.length === 0)}
           className="w-full bg-quack-500 hover:bg-quack-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {isDecrypting ? '⏳ Decrypting...' : '🔓 Decrypt'}

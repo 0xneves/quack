@@ -1,35 +1,107 @@
 /**
  * Quack - Message Encryption/Decryption
  * 
- * Combines ML-KEM (Kyber) for key encapsulation with AES-256-GCM for message encryption.
+ * Primary: Group-based encryption (shared AES keys)
+ * Legacy: 1-to-1 Kyber-based encryption (backwards compatibility)
  * 
- * Message Format:
- * Quack://MSG:[recipient_short_fingerprint]:[kyber_ciphertext_b64]:[aes_encrypted_b64]:[aes_iv_b64]
- * 
- * Key Export Format:
- * Quack://KEY:[public_key_b64]
+ * Message Formats:
+ * - Group:  Quack://[group_fp]:[iv]:[ciphertext]
+ * - Legacy: Quack://MSG:[recipient_fp]:[kyber_ct]:[aes_data]:[iv]
+ * - Key:    Quack://KEY:[public_key_b64]
+ * - Invite: Quack://INV:[recipient_fp]:[kyber_ct]:[encrypted_group_data]
  */
 
 import { encapsulate, decapsulate } from './kyber';
+import { 
+  encryptGroupMessage, 
+  decryptWithGroups, 
+  isGroupMessage,
+  isInvitation,
+  extractQuackStrings as extractQuackStringsFromGroup
+} from './group';
 import { base64Encode, base64Decode } from '@/utils/helpers';
-import type { PersonalKey, ContactKey, EncryptedMessage } from '@/types';
+import type { 
+  PersonalKey, 
+  ContactKey, 
+  QuackGroup,
+  EncryptedMessage
+} from '@/types';
 
 const AES_IV_BYTES = 12;
-const MESSAGE_PREFIX = 'Quack://MSG:';
+const LEGACY_MESSAGE_PREFIX = 'Quack://MSG:';
 const KEY_PREFIX = 'Quack://KEY:';
 
+// Re-export group functions for external use
+export { 
+  encryptGroupMessage, 
+  decryptWithGroups,
+  parseGroupMessage,
+  isGroupMessage,
+  createGroupInvitation,
+  parseInvitation,
+  acceptInvitation,
+  isInvitation,
+  tryAcceptInvitation,
+  extractQuackStrings
+} from './group';
+
+// ============================================================================
+// Main Encryption Interface
+// ============================================================================
+
 /**
- * Encrypt a message to a contact
- * Uses their public key to encapsulate a shared secret, then AES-GCM to encrypt
+ * Encrypt a message to a group
+ * This is the primary encryption method in Quack v2
+ */
+export async function encryptMessage(
+  plaintext: string,
+  group: QuackGroup
+): Promise<string> {
+  return encryptGroupMessage(plaintext, group);
+}
+
+/**
+ * Decrypt a message using available groups
+ * Tries each group until one works
+ */
+export async function decryptMessage(
+  messageString: string,
+  groups: QuackGroup[],
+  personalKeys?: PersonalKey[]
+): Promise<{ plaintext: string; groupId?: string; keyId?: string } | null> {
+  // Try group message first (new format)
+  if (isGroupMessage(messageString)) {
+    const result = await decryptWithGroups(messageString, groups);
+    if (result) {
+      return { plaintext: result.plaintext, groupId: result.group.id };
+    }
+  }
+  
+  // Try legacy 1-to-1 format (backwards compatibility)
+  if (messageString.startsWith(LEGACY_MESSAGE_PREFIX) && personalKeys) {
+    const result = await decryptLegacyMessage(messageString, personalKeys);
+    if (result) {
+      return { plaintext: result.plaintext, keyId: result.keyId };
+    }
+  }
+  
+  return null;
+}
+
+// ============================================================================
+// Legacy 1-to-1 Encryption (Backwards Compatibility)
+// ============================================================================
+
+/**
+ * Encrypt a message to a contact (legacy 1-to-1 format)
+ * @deprecated Use encryptGroupMessage instead
  */
 export async function encryptToContact(
   plaintext: string,
   contactKey: ContactKey
 ): Promise<string> {
-  // 1. Encapsulate - generate shared secret using contact's public key
   const { ciphertext: kyberCiphertext, sharedSecret } = await encapsulate(contactKey.publicKey);
   
-  // 2. Import shared secret as AES key
   const sharedSecretBytes = base64Decode(sharedSecret);
   const aesKey = await crypto.subtle.importKey(
     'raw',
@@ -39,10 +111,7 @@ export async function encryptToContact(
     ['encrypt']
   );
   
-  // 3. Generate random IV
   const iv = crypto.getRandomValues(new Uint8Array(AES_IV_BYTES));
-  
-  // 4. Encrypt message with AES-GCM
   const encoded = new TextEncoder().encode(plaintext);
   const encryptedBuffer = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
@@ -51,11 +120,9 @@ export async function encryptToContact(
   );
   const encryptedData = new Uint8Array(encryptedBuffer);
   
-  // 5. Format message
-  // Quack://MSG:[recipient_fingerprint]:[kyber_ct]:[aes_data]:[aes_iv]
   return [
-    MESSAGE_PREFIX.slice(0, -1), // Remove trailing :
-    contactKey.shortFingerprint.replace(/:/g, ''), // Compact fingerprint (no colons)
+    LEGACY_MESSAGE_PREFIX.slice(0, -1),
+    contactKey.shortFingerprint.replace(/:/g, ''),
     kyberCiphertext,
     base64Encode(encryptedData),
     base64Encode(iv)
@@ -63,17 +130,15 @@ export async function encryptToContact(
 }
 
 /**
- * Parse an encrypted message string
+ * Parse a legacy encrypted message string
  */
-export function parseEncryptedMessage(messageString: string): EncryptedMessage | null {
-  // Quack://MSG:FINGERPRINT:KYBER_CT:AES_DATA:AES_IV
+export function parseLegacyMessage(messageString: string): EncryptedMessage | null {
   const match = messageString.match(
     /^Quack:\/\/MSG:([A-Fa-f0-9]{8}):([A-Za-z0-9+/=]+):([A-Za-z0-9+/=]+):([A-Za-z0-9+/=]+)$/
   );
   
   if (!match) return null;
   
-  // Restore fingerprint format with colons
   const fp = match[1];
   const shortFingerprint = `${fp.slice(0,2)}:${fp.slice(2,4)}:${fp.slice(4,6)}:${fp.slice(6,8)}`.toUpperCase();
   
@@ -86,26 +151,22 @@ export function parseEncryptedMessage(messageString: string): EncryptedMessage |
 }
 
 /**
- * Decrypt a message using your personal key
- * Checks if the message is addressed to you (fingerprint match)
+ * Decrypt a legacy message using personal key
  */
 export async function decryptWithPersonalKey(
   encryptedMessage: EncryptedMessage,
   personalKey: PersonalKey
 ): Promise<string | null> {
-  // Check if message is for us
   if (encryptedMessage.recipientFingerprint !== personalKey.shortFingerprint) {
-    return null; // Not for us
+    return null;
   }
   
   try {
-    // 1. Decapsulate - recover shared secret using our secret key
     const sharedSecret = await decapsulate(
       personalKey.secretKey,
       encryptedMessage.kyberCiphertext
     );
     
-    // 2. Import shared secret as AES key
     const sharedSecretBytes = base64Decode(sharedSecret);
     const aesKey = await crypto.subtle.importKey(
       'raw',
@@ -115,7 +176,6 @@ export async function decryptWithPersonalKey(
       ['decrypt']
     );
     
-    // 3. Decrypt with AES-GCM
     const encryptedData = base64Decode(encryptedMessage.encryptedData);
     const iv = base64Decode(encryptedMessage.iv);
     
@@ -127,23 +187,21 @@ export async function decryptWithPersonalKey(
     
     return new TextDecoder().decode(decryptedBuffer);
   } catch (error) {
-    // Decryption failed
-    console.error('Decryption failed:', error);
+    console.error('Legacy decryption failed:', error);
     return null;
   }
 }
 
 /**
- * Try to decrypt a message with multiple personal keys
+ * Decrypt a legacy message with multiple personal keys
  */
-export async function decryptMessage(
+export async function decryptLegacyMessage(
   messageString: string,
   personalKeys: PersonalKey[]
 ): Promise<{ plaintext: string; keyId: string } | null> {
-  const parsed = parseEncryptedMessage(messageString);
+  const parsed = parseLegacyMessage(messageString);
   if (!parsed) return null;
   
-  // Find the key that matches the fingerprint
   for (const key of personalKeys) {
     const plaintext = await decryptWithPersonalKey(parsed, key);
     if (plaintext !== null) {
@@ -154,11 +212,15 @@ export async function decryptMessage(
   return null;
 }
 
+// ============================================================================
+// Detection & Extraction
+// ============================================================================
+
 /**
- * Check if a string looks like a Quack encrypted message
+ * Check if a string looks like a Quack encrypted message (any format)
  */
 export function isQuackMessage(text: string): boolean {
-  return text.startsWith(MESSAGE_PREFIX);
+  return isGroupMessage(text) || text.startsWith(LEGACY_MESSAGE_PREFIX);
 }
 
 /**
@@ -169,33 +231,50 @@ export function isQuackKey(text: string): boolean {
 }
 
 /**
- * Extract all Quack:// strings from text
+ * Detect what type of Quack string this is
  */
-export function extractQuackStrings(text: string): string[] {
-  const regex = /Quack:\/\/(?:MSG|KEY):[A-Za-z0-9+/=:]+/g;
-  return text.match(regex) || [];
+export function detectQuackType(text: string): 'group' | 'legacy' | 'key' | 'invitation' | null {
+  if (isGroupMessage(text)) return 'group';
+  if (text.startsWith(LEGACY_MESSAGE_PREFIX)) return 'legacy';
+  if (text.startsWith(KEY_PREFIX)) return 'key';
+  if (isInvitation(text)) return 'invitation';
+  return null;
 }
 
 /**
- * Find Quack messages in text that we can decrypt
+ * Find all decryptable messages in text
+ * Works with both group and legacy formats
  */
 export async function findDecryptableMessages(
   text: string,
-  personalKeys: PersonalKey[]
-): Promise<Array<{ original: string; plaintext: string; keyId: string }>> {
-  const quackStrings = extractQuackStrings(text);
-  const results: Array<{ original: string; plaintext: string; keyId: string }> = [];
+  groups: QuackGroup[],
+  personalKeys?: PersonalKey[]
+): Promise<Array<{ 
+  original: string; 
+  plaintext: string; 
+  type: 'group' | 'legacy';
+  groupId?: string;
+  keyId?: string 
+}>> {
+  const quackStrings = extractQuackStringsFromGroup(text);
+  const results: Array<{ 
+    original: string; 
+    plaintext: string; 
+    type: 'group' | 'legacy';
+    groupId?: string;
+    keyId?: string 
+  }> = [];
   
   for (const qs of quackStrings) {
-    if (isQuackMessage(qs)) {
-      const decrypted = await decryptMessage(qs, personalKeys);
-      if (decrypted) {
-        results.push({
-          original: qs,
-          plaintext: decrypted.plaintext,
-          keyId: decrypted.keyId
-        });
-      }
+    const decrypted = await decryptMessage(qs, groups, personalKeys);
+    if (decrypted) {
+      results.push({
+        original: qs,
+        plaintext: decrypted.plaintext,
+        type: decrypted.groupId ? 'group' : 'legacy',
+        groupId: decrypted.groupId,
+        keyId: decrypted.keyId
+      });
     }
   }
   

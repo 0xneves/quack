@@ -1,13 +1,20 @@
 /**
  * Quack - Vault Storage Management
+ * 
+ * Handles encrypted storage of:
+ * - Personal keys (Kyber keypairs for receiving invitations)
+ * - Contact keys (others' Kyber public keys for inviting them)
+ * - Groups (shared AES keys for community encryption)
  */
 
 import type { 
   QuackKey, 
   PersonalKey, 
-  ContactKey, 
+  ContactKey,
+  QuackGroup,
   VaultData, 
-  EncryptedVault
+  EncryptedVault,
+  InvitationPayload
 } from '@/types';
 import { encryptVault, decryptVault } from '@/crypto/pbkdf2';
 import { 
@@ -16,6 +23,11 @@ import {
   generateShortFingerprint,
   isValidPublicKey
 } from '@/crypto/kyber';
+import {
+  generateGroupKey,
+  generateGroupFingerprint,
+  generateGroupShortFingerprint
+} from '@/crypto/group';
 import { generateUUID } from '@/utils/helpers';
 import { STORAGE_KEYS } from '@/utils/constants';
 
@@ -24,12 +36,17 @@ export { isPersonalKey, isContactKey } from '@/types';
 
 const CURRENT_VAULT_VERSION = 2;
 
+// ============================================================================
+// Vault Lifecycle
+// ============================================================================
+
 /**
  * Initialize a new vault with master password
  */
 export async function createVault(masterPassword: string): Promise<void> {
   const emptyVault: VaultData = {
     keys: [],
+    groups: [],
   };
   
   const vaultJson = JSON.stringify(emptyVault);
@@ -77,6 +94,11 @@ export async function unlockVault(masterPassword: string): Promise<VaultData | n
   
   let vaultData = JSON.parse(decrypted) as VaultData;
   
+  // Ensure groups array exists (migration from older versions)
+  if (!vaultData.groups) {
+    vaultData.groups = [];
+  }
+  
   // Migrate from v1 if necessary
   if (vault.version === 1) {
     vaultData = await migrateVaultV1ToV2(vaultData);
@@ -86,18 +108,15 @@ export async function unlockVault(masterPassword: string): Promise<VaultData | n
 }
 
 /**
- * Migrate vault from v1 (legacy) to v2 (new Kyber format)
- * Legacy keys are removed - users need to create new keys
+ * Migrate vault from v1 (legacy) to v2 (Kyber + Groups)
  */
 async function migrateVaultV1ToV2(_oldVault: VaultData): Promise<VaultData> {
-  // Legacy keys had random bytes, not real Kyber keys
-  // We can't migrate them - just return empty vault
   console.warn('Migrating vault from v1 to v2. Legacy keys will be removed.');
-  return { keys: [] };
+  return { keys: [], groups: [] };
 }
 
 /**
- * Save vault data (re-encrypt with existing password state)
+ * Save vault data (re-encrypt with password)
  */
 export async function saveVault(
   vaultData: VaultData,
@@ -116,8 +135,13 @@ export async function saveVault(
   await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: encryptedVault });
 }
 
+// ============================================================================
+// Personal Key Management
+// ============================================================================
+
 /**
  * Generate a new personal identity key (full Kyber keypair)
+ * Used for receiving group invitations securely
  */
 export async function generatePersonalKey(name: string): Promise<PersonalKey> {
   const { publicKey, secretKey } = await generateKyberKeyPair();
@@ -137,7 +161,20 @@ export async function generatePersonalKey(name: string): Promise<PersonalKey> {
 }
 
 /**
+ * Export a personal key for sharing (public key only)
+ * Returns: Quack://KEY:[base64_public_key]
+ */
+export function exportPublicKey(key: PersonalKey): string {
+  return `Quack://KEY:${key.publicKey}`;
+}
+
+// ============================================================================
+// Contact Key Management
+// ============================================================================
+
+/**
  * Create a contact key from an imported public key
+ * Used for inviting others to groups
  */
 export async function createContactKey(
   name: string,
@@ -164,14 +201,6 @@ export async function createContactKey(
 }
 
 /**
- * Export a personal key for sharing (public key only)
- * Returns: Quack://KEY:[base64_public_key]
- */
-export function exportPublicKey(key: PersonalKey): string {
-  return `Quack://KEY:${key.publicKey}`;
-}
-
-/**
  * Parse an imported key string
  * Accepts: Quack://KEY:[base64_public_key]
  */
@@ -185,6 +214,85 @@ export function parseKeyString(keyString: string): { publicKey: string } | null 
   return { publicKey };
 }
 
+// ============================================================================
+// Group Management
+// ============================================================================
+
+/**
+ * Create a new group with a fresh AES key
+ */
+export async function createGroup(
+  name: string,
+  emoji?: string,
+  notes?: string,
+  creatorFingerprint?: string
+): Promise<QuackGroup> {
+  const aesKey = await generateGroupKey();
+  const fingerprint = await generateGroupFingerprint(aesKey);
+  const shortFingerprint = await generateGroupShortFingerprint(aesKey);
+  
+  return {
+    id: generateUUID(),
+    name,
+    emoji,
+    aesKey,
+    fingerprint,
+    shortFingerprint,
+    createdAt: Date.now(),
+    createdBy: creatorFingerprint,
+    notes,
+  };
+}
+
+/**
+ * Create a group from an accepted invitation
+ */
+export async function createGroupFromInvitation(
+  payload: InvitationPayload
+): Promise<QuackGroup> {
+  const fingerprint = await generateGroupFingerprint(payload.groupAesKey);
+  const shortFingerprint = await generateGroupShortFingerprint(payload.groupAesKey);
+  
+  return {
+    id: generateUUID(),
+    name: payload.groupName,
+    emoji: payload.groupEmoji,
+    aesKey: payload.groupAesKey,
+    fingerprint,
+    shortFingerprint,
+    createdAt: Date.now(),
+    createdBy: payload.inviterFingerprint,
+    notes: payload.message ? `Invitation message: ${payload.message}` : undefined,
+  };
+}
+
+/**
+ * Check if we already have a group with this AES key
+ */
+export function hasGroup(aesKey: string, vaultData: VaultData): boolean {
+  return vaultData.groups.some(g => g.aesKey === aesKey);
+}
+
+/**
+ * Get group by fingerprint (short or full)
+ */
+export function getGroupByFingerprint(
+  fingerprint: string,
+  vaultData: VaultData
+): QuackGroup | undefined {
+  // Try short fingerprint first (8 chars, no colons)
+  const clean = fingerprint.replace(/:/g, '').toUpperCase();
+  if (clean.length === 8) {
+    return vaultData.groups.find(g => g.shortFingerprint === clean);
+  }
+  // Try full fingerprint
+  return vaultData.groups.find(g => g.fingerprint === fingerprint);
+}
+
+// ============================================================================
+// Generic CRUD Operations
+// ============================================================================
+
 /**
  * Add key to vault
  */
@@ -192,7 +300,6 @@ export async function addKeyToVault(
   key: QuackKey,
   vaultData: VaultData
 ): Promise<VaultData> {
-  // Check for duplicate fingerprints
   const existing = vaultData.keys.find(k => k.fingerprint === key.fingerprint);
   if (existing) {
     throw new Error(`Key with this fingerprint already exists: ${existing.name}`);
@@ -234,6 +341,57 @@ export async function updateKeyInVault(
 }
 
 /**
+ * Add group to vault
+ */
+export async function addGroupToVault(
+  group: QuackGroup,
+  vaultData: VaultData
+): Promise<VaultData> {
+  // Check for duplicate (same AES key)
+  if (hasGroup(group.aesKey, vaultData)) {
+    throw new Error(`You're already a member of this group`);
+  }
+  
+  return {
+    ...vaultData,
+    groups: [...vaultData.groups, group],
+  };
+}
+
+/**
+ * Remove group from vault
+ */
+export async function removeGroupFromVault(
+  groupId: string,
+  vaultData: VaultData
+): Promise<VaultData> {
+  return {
+    ...vaultData,
+    groups: vaultData.groups.filter(g => g.id !== groupId),
+  };
+}
+
+/**
+ * Update group in vault
+ */
+export async function updateGroupInVault(
+  groupId: string,
+  updates: Record<string, unknown>,
+  vaultData: VaultData
+): Promise<VaultData> {
+  return {
+    ...vaultData,
+    groups: vaultData.groups.map(g =>
+      g.id === groupId ? { ...g, ...updates } as QuackGroup : g
+    ),
+  };
+}
+
+// ============================================================================
+// Query Helpers
+// ============================================================================
+
+/**
  * Mark a contact as verified (fingerprint was verified out-of-band)
  */
 export async function markContactVerified(
@@ -261,6 +419,13 @@ export function getKeyByShortFingerprint(
 }
 
 /**
+ * Get group by ID
+ */
+export function getGroupById(groupId: string, vaultData: VaultData): QuackGroup | undefined {
+  return vaultData.groups.find(g => g.id === groupId);
+}
+
+/**
  * Get all personal keys
  */
 export function getPersonalKeys(vaultData: VaultData): PersonalKey[] {
@@ -272,6 +437,13 @@ export function getPersonalKeys(vaultData: VaultData): PersonalKey[] {
  */
 export function getContactKeys(vaultData: VaultData): ContactKey[] {
   return vaultData.keys.filter((k): k is ContactKey => k.type === 'contact');
+}
+
+/**
+ * Get all groups
+ */
+export function getGroups(vaultData: VaultData): QuackGroup[] {
+  return vaultData.groups;
 }
 
 /**

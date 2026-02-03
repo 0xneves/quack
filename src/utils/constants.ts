@@ -3,13 +3,21 @@
  */
 
 // Message Format Constants
-// New format: Quack://MSG:[fingerprint]:[kyber_ct]:[aes_data]:[iv]
+// Group format: Quack://[group_fp]:[iv]:[ciphertext]
+// Legacy format: Quack://MSG:[fingerprint]:[kyber_ct]:[aes_data]:[iv]
 // Key format: Quack://KEY:[public_key_base64]
+// Invitation format: Quack://INV:[recipient_fp]:[kyber_ct]:[encrypted_group_data]
 export const QUACK_PREFIX = 'Quack://';
 export const QUACK_MSG_PREFIX = 'Quack://MSG:';
 export const QUACK_KEY_PREFIX = 'Quack://KEY:';
-export const QUACK_MSG_REGEX = /Quack:\/\/MSG:[A-Fa-f0-9]{8}:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+/g;
+export const QUACK_INV_PREFIX = 'Quack://INV:';
+
+// Group message: Quack://[8-char-hex]:[base64]:[base64]
+export const QUACK_GROUP_REGEX = /Quack:\/\/[A-Fa-f0-9]{8}:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+/g;
+// Legacy 1-to-1: Quack://MSG:[8-char]:[kyber_ct]:[aes_data]:[iv]
+export const QUACK_MSG_REGEX = /Quack:\/\/(?:MSG:)?[A-Fa-f0-9]{8}:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+(?::[A-Za-z0-9+/=]+)?/g;
 export const QUACK_KEY_REGEX = /Quack:\/\/KEY:[A-Za-z0-9+/=]+/g;
+export const QUACK_INV_REGEX = /Quack:\/\/INV:[A-Fa-f0-9]{8}:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+/g;
 // Legacy format for backward compatibility
 export const QUACK_LEGACY_REGEX = /Quack:\/\/[A-Za-z0-9+/=]+/g;
 

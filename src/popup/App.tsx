@@ -50,9 +50,10 @@ function App() {
     try {
       await createVault(password);
       setMasterPassword(password);
-      setVaultData({ keys: [] });
+      const emptyVault: VaultData = { keys: [], groups: [] };
+      setVaultData(emptyVault);
       await markVaultUnlocked();
-      await cacheVaultInBackground({ keys: [] }, password);
+      await cacheVaultInBackground(emptyVault, password);
       setScreen('dashboard');
     } catch (error) {
       console.error('Setup failed:', error);
