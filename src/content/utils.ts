@@ -8,12 +8,63 @@ import { isEditableElement } from '@/utils/helpers';
 
 /**
  * Check if an element lives inside an editable context
+ * 
+ * Handles complex web apps (Gmail, Twitter, etc.) that use non-standard
+ * editable patterns like [role="textbox"], custom input components, etc.
  */
 export function isWithinEditable(element: HTMLElement): boolean {
   if (isEditableElement(element)) return true;
-  return Boolean(
-    element.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')
-  );
+  
+  // Walk up the tree checking for editable contexts
+  let node: HTMLElement | null = element;
+  while (node && node !== document.body) {
+    const tagName = node.tagName.toLowerCase();
+    
+    // Standard form elements
+    if (tagName === 'input' || tagName === 'textarea') {
+      return true;
+    }
+    
+    // Contenteditable
+    if (node.isContentEditable) {
+      return true;
+    }
+    const contentEditable = node.getAttribute('contenteditable');
+    if (contentEditable === 'true' || contentEditable === '') {
+      return true;
+    }
+    
+    // ARIA textbox role (Gmail, Twitter compose, etc.)
+    const role = node.getAttribute('role');
+    if (role === 'textbox' || role === 'searchbox' || role === 'combobox') {
+      return true;
+    }
+    
+    // Common editable class patterns (Gmail, Outlook, etc.)
+    const className = node.className?.toLowerCase?.() || '';
+    if (
+      className.includes('editable') ||
+      className.includes('input') ||
+      className.includes('compose') ||
+      className.includes('editor') ||
+      className.includes('search')
+    ) {
+      // Verify it's actually interactive, not just named similarly
+      if (node.isContentEditable || node.getAttribute('contenteditable') || 
+          node.querySelector('input, textarea, [contenteditable]')) {
+        return true;
+      }
+    }
+    
+    // Data attributes used by some frameworks
+    if (node.dataset?.editable === 'true' || node.dataset?.editor) {
+      return true;
+    }
+    
+    node = node.parentElement;
+  }
+  
+  return false;
 }
 
 /**

@@ -322,51 +322,73 @@ function setUnderlineHover(cipherId: string, hovered: boolean): void {
 
 /**
  * Render underlines for a detected cipher
+ * 
+ * Reuses existing DOM elements when possible (just updates positions)
+ * to avoid re-triggering animations on scroll.
  */
 function renderUnderlines(cipher: DetectedCipher): void {
-  // Clear old underlines
-  cipher.underlines.forEach(u => u.remove());
-  cipher.hitboxes.forEach(h => h.remove());
-  cipher.underlines = [];
-  cipher.hitboxes = [];
+  const rectsCount = cipher.rects.length;
+  const existingCount = cipher.underlines.length;
   
-  cipher.rects.forEach((rect) => {
-    const underline = document.createElement('div');
-    underline.className = 'quack-underline';
-    underline.style.left = `${rect.left}px`;
-    underline.style.top = `${rect.bottom - 3}px`;
-    underline.style.width = `${rect.width}px`;
-    underline.style.height = '3px';
-    underline.style.pointerEvents = 'none';
-    
-    const hitbox = document.createElement('div');
-    hitbox.className = 'quack-underline-hit';
-    hitbox.style.left = `${rect.left}px`;
-    hitbox.style.top = `${rect.bottom - 8}px`;
-    hitbox.style.width = `${rect.width}px`;
-    hitbox.style.height = '10px';
-    hitbox.tabIndex = -1;
-    
-    hitbox.addEventListener('mouseenter', () => {
-      if (hoverTimer) {
-        clearTimeout(hoverTimer);
-        hoverTimer = null;
-      }
-      // Get anchor rect (lowest point)
-      const lowestRect = cipher.rects.reduce((acc, r) => 
-        r.bottom > acc.bottom ? r : acc, cipher.rects[0]);
-      showHoverCard(cipher, lowestRect);
-    });
-    
-    hitbox.addEventListener('mouseleave', () => {
-      scheduleHoverHide();
-    });
-    
-    document.body.appendChild(underline);
-    document.body.appendChild(hitbox);
-    cipher.underlines.push(underline);
-    cipher.hitboxes.push(hitbox);
+  // Update existing elements or create new ones
+  cipher.rects.forEach((rect, idx) => {
+    if (idx < existingCount) {
+      // Reuse existing element - just update position
+      const underline = cipher.underlines[idx];
+      const hitbox = cipher.hitboxes[idx];
+      
+      underline.style.left = `${rect.left}px`;
+      underline.style.top = `${rect.bottom - 3}px`;
+      underline.style.width = `${rect.width}px`;
+      
+      hitbox.style.left = `${rect.left}px`;
+      hitbox.style.top = `${rect.bottom - 8}px`;
+      hitbox.style.width = `${rect.width}px`;
+    } else {
+      // Create new element
+      const underline = document.createElement('div');
+      underline.className = 'quack-underline';
+      underline.style.left = `${rect.left}px`;
+      underline.style.top = `${rect.bottom - 3}px`;
+      underline.style.width = `${rect.width}px`;
+      underline.style.height = '3px';
+      underline.style.pointerEvents = 'none';
+      
+      const hitbox = document.createElement('div');
+      hitbox.className = 'quack-underline-hit';
+      hitbox.style.left = `${rect.left}px`;
+      hitbox.style.top = `${rect.bottom - 8}px`;
+      hitbox.style.width = `${rect.width}px`;
+      hitbox.style.height = '10px';
+      hitbox.tabIndex = -1;
+      
+      hitbox.addEventListener('mouseenter', () => {
+        if (hoverTimer) {
+          clearTimeout(hoverTimer);
+          hoverTimer = null;
+        }
+        // Get anchor rect (lowest point)
+        const lowestRect = cipher.rects.reduce((acc, r) => 
+          r.bottom > acc.bottom ? r : acc, cipher.rects[0]);
+        showHoverCard(cipher, lowestRect);
+      });
+      
+      hitbox.addEventListener('mouseleave', () => {
+        scheduleHoverHide();
+      });
+      
+      document.body.appendChild(underline);
+      document.body.appendChild(hitbox);
+      cipher.underlines.push(underline);
+      cipher.hitboxes.push(hitbox);
+    }
   });
+  
+  // Remove excess elements (if rects shrunk)
+  while (cipher.underlines.length > rectsCount) {
+    cipher.underlines.pop()?.remove();
+    cipher.hitboxes.pop()?.remove();
+  }
 }
 
 // ============================================================================
@@ -374,11 +396,20 @@ function renderUnderlines(cipher: DetectedCipher): void {
 // ============================================================================
 
 /**
- * Generate unique ID for a cipher based on content and position
+ * Generate unique ID for a cipher based on content only (stable across scroll)
+ * 
+ * Uses a hash of the full encrypted string to avoid duplicates when the same
+ * cipher appears in different elements, but still be stable across scrolls.
  */
-function generateCipherId(encrypted: string, element: HTMLElement): string {
-  const rect = element.getBoundingClientRect();
-  return `${encrypted.substring(0, 20)}-${Math.round(rect.top)}-${Math.round(rect.left)}`;
+function generateCipherId(encrypted: string, _element: HTMLElement): string {
+  // Simple hash of the encrypted content for stability
+  let hash = 0;
+  for (let i = 0; i < encrypted.length; i++) {
+    const char = encrypted.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return `quack-${Math.abs(hash).toString(36)}-${encrypted.length}`;
 }
 
 /**
@@ -563,23 +594,62 @@ export function setupSecureScanning(): void {
     subtree: true,
   });
   
-  // Handle scroll/resize - update underline positions
+  // Handle scroll/resize - update underline positions with throttling
   let rafPending = false;
+  let lastUpdateTime = 0;
+  const UPDATE_THROTTLE_MS = 50; // Max update frequency
+  
   const updatePositions = () => {
-    if (rafPending) return;
+    const now = Date.now();
+    if (rafPending || now - lastUpdateTime < UPDATE_THROTTLE_MS) return;
+    
     rafPending = true;
     requestAnimationFrame(() => {
       rafPending = false;
-      detectedCiphers.forEach(cipher => {
-        if (document.body.contains(cipher.element)) {
-          cipher.rects = getCipherRects(cipher.element, cipher.encrypted);
-          renderUnderlines(cipher);
-        } else {
-          // Element removed from DOM
+      lastUpdateTime = Date.now();
+      
+      const ciphersToRemove: string[] = [];
+      
+      detectedCiphers.forEach((cipher, id) => {
+        // Check if element is still in DOM and visible
+        if (!document.body.contains(cipher.element)) {
+          ciphersToRemove.push(id);
+          return;
+        }
+        
+        // Check if element still contains the cipher text
+        const text = cipher.element.textContent || '';
+        if (!text.includes(cipher.encrypted)) {
+          ciphersToRemove.push(id);
+          return;
+        }
+        
+        // Update positions
+        const newRects = getCipherRects(cipher.element, cipher.encrypted);
+        
+        // If no valid rects, element might be hidden/scrolled out
+        if (newRects.length === 0) {
+          // Hide underlines but don't remove cipher (element still exists)
+          cipher.underlines.forEach(u => u.style.display = 'none');
+          cipher.hitboxes.forEach(h => h.style.display = 'none');
+          return;
+        }
+        
+        // Show and update
+        cipher.rects = newRects;
+        cipher.underlines.forEach(u => u.style.display = '');
+        cipher.hitboxes.forEach(h => h.style.display = '');
+        renderUnderlines(cipher);
+      });
+      
+      // Clean up removed ciphers
+      ciphersToRemove.forEach(id => {
+        const cipher = detectedCiphers.get(id);
+        if (cipher) {
           cipher.underlines.forEach(u => u.remove());
           cipher.hitboxes.forEach(h => h.remove());
-          closeBubble(cipher.id);
-          detectedCiphers.delete(cipher.id);
+          closeBubble(id);
+          detectedCiphers.delete(id);
         }
       });
     });
@@ -587,6 +657,46 @@ export function setupSecureScanning(): void {
   
   window.addEventListener('scroll', updatePositions, { passive: true });
   window.addEventListener('resize', updatePositions, { passive: true });
+  
+  // SPA navigation detection - clear all underlines when URL changes
+  let lastUrl = window.location.href;
+  const checkUrlChange = () => {
+    if (window.location.href !== lastUrl) {
+      lastUrl = window.location.href;
+      console.log('🦆 URL changed, clearing all underlines');
+      clearAllUnderlines();
+    }
+  };
+  
+  // Check on popstate and also periodically (some SPAs don't trigger popstate)
+  window.addEventListener('popstate', checkUrlChange);
+  setInterval(checkUrlChange, 500);
+  
+  // Also observe mutations for content removal
+  const cleanupObserver = new MutationObserver(() => {
+    // Trigger position update which handles cleanup
+    updatePositions();
+  });
+  cleanupObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+}
+
+/**
+ * Clear all underlines and reset state (for SPA navigation)
+ */
+function clearAllUnderlines(): void {
+  detectedCiphers.forEach(cipher => {
+    cipher.underlines.forEach(u => u.remove());
+    cipher.hitboxes.forEach(h => h.remove());
+  });
+  detectedCiphers.clear();
+  activeBubbles.forEach(bubble => bubble.frame.remove());
+  activeBubbles.clear();
+  hideHoverCard();
+  decryptionCount = 0;
+  warningShown = false;
 }
 
 /**
