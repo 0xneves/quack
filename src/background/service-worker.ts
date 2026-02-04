@@ -39,7 +39,7 @@ import {
   parseKeyString, 
   exportPublicKey 
 } from '@/storage/vault';
-import { getSession, shouldAutoLock, markVaultLocked } from '@/storage/settings';
+import { getSession, shouldAutoLock, markVaultLocked, migrateSessionToMemoryOnly } from '@/storage/settings';
 import { 
   encryptGroupMessage, 
   decryptMessage,
@@ -53,6 +53,9 @@ let cachedVaultData: VaultData | null = null;
 let cachedMasterPassword: string | null = null;
 
 console.log('🦆 Quack service worker loaded (v2 - Group Encryption)');
+
+// Security: Migrate any old session data from local to memory-only storage
+migrateSessionToMemoryOnly().catch(console.error);
 
 /**
  * Handle messages from content scripts and popup
