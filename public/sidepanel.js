@@ -2,7 +2,7 @@
  * Quack Side Panel
  * 
  * SECURITY: All decrypted content displays here, never in page DOM.
- * Shows list of all encrypted messages detected via text selection.
+ * Shows ONLY decrypted messages - no pending state.
  * 
  * Messages are cleared on:
  * - Tab switch
@@ -34,16 +34,14 @@ async function init() {
   // Notify content script that panel is open
   notifyPanelState(true);
   
-  // Listen for messages from background/content script
+  // Listen for messages from content script
   chrome.runtime.onMessage.addListener(handleMessage);
   
   // Handle tab changes
   chrome.tabs.onActivated?.addListener(async (activeInfo) => {
     currentTabId = activeInfo.tabId;
-    // Clear messages when switching tabs
     clearMessages();
     
-    // Get new tab URL
     const tab = await chrome.tabs.get(activeInfo.tabId);
     currentTabUrl = tab.url;
     
@@ -53,7 +51,6 @@ async function init() {
   // Handle tab URL changes (navigation/refresh)
   chrome.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
     if (tabId === currentTabId) {
-      // Clear on URL change or page load complete
       if (changeInfo.url || changeInfo.status === 'complete') {
         if (changeInfo.url && changeInfo.url !== currentTabUrl) {
           console.log('🦆 Tab URL changed, clearing messages');
@@ -81,7 +78,6 @@ async function notifyPanelState(open) {
       type: open ? 'SIDEPANEL_OPENED' : 'SIDEPANEL_CLOSED' 
     });
   } catch (e) {
-    // Content script may not be loaded yet
     console.log('🦆 Could not notify content script:', e.message);
   }
 }
@@ -98,18 +94,17 @@ function clearMessages() {
  * Handle incoming messages
  */
 function handleMessage(message, sender) {
-  // Only accept messages from the current tab's content script
-  if (sender.tab?.id !== currentTabId) {
-    return;
-  }
+  if (sender.tab?.id !== currentTabId) return;
   
   if (message.type === 'SIDEPANEL_SYNC') {
-    messages = message.payload?.items || [];
-    // Sort by detection order (no y-position without underlines)
+    // Only keep decrypted messages
+    messages = (message.payload?.items || []).filter(m => m.decrypted);
     render();
   } else if (message.type === 'SIDEPANEL_UPDATE') {
-    // Update single message
     const item = message.payload;
+    // Only add if decrypted
+    if (!item.decrypted) return;
+    
     const idx = messages.findIndex(m => m.id === item.id);
     if (idx !== -1) {
       messages[idx] = { ...messages[idx], ...item };
@@ -128,7 +123,6 @@ function render() {
   
   if (messages.length === 0) {
     emptyState.style.display = 'block';
-    // Remove all message cards
     const cards = messagesList.querySelectorAll('.message-card');
     cards.forEach(c => c.remove());
     return;
@@ -140,6 +134,9 @@ function render() {
   const cards = messagesList.querySelectorAll('.message-card');
   cards.forEach(c => c.remove());
   
+  // Sort by Y position for page order
+  messages.sort((a, b) => (a.yPosition || 0) - (b.yPosition || 0));
+  
   messages.forEach(msg => {
     const card = createMessageCard(msg);
     messagesList.appendChild(card);
@@ -147,11 +144,11 @@ function render() {
 }
 
 /**
- * Create a message card element
+ * Create a message card element (decrypted only)
  */
 function createMessageCard(msg) {
   const card = document.createElement('div');
-  card.className = 'message-card' + (msg.decrypted ? '' : ' pending');
+  card.className = 'message-card';
   card.dataset.id = msg.id;
   
   const header = document.createElement('div');
@@ -159,26 +156,27 @@ function createMessageCard(msg) {
   
   const keyInfo = document.createElement('div');
   keyInfo.className = 'message-key';
-  keyInfo.innerHTML = `<span>🔑</span> ${msg.decrypted?.keyName || 'Pending decryption...'}`;
+  keyInfo.innerHTML = `<span>🔑</span> ${msg.decrypted.keyName}`;
   
   const actions = document.createElement('div');
   actions.className = 'message-actions';
   
-  if (msg.decrypted) {
-    const copyBtn = document.createElement('button');
-    copyBtn.className = 'action-btn copy';
-    copyBtn.textContent = 'Copy';
-    copyBtn.onclick = () => copyText(msg.decrypted.plaintext, copyBtn);
-    actions.appendChild(copyBtn);
-  } else {
-    const decryptBtn = document.createElement('button');
-    decryptBtn.className = 'decrypt-btn';
-    decryptBtn.textContent = 'Decrypt';
-    decryptBtn.onclick = () => requestDecrypt(msg.id);
-    actions.appendChild(decryptBtn);
-  }
+  // Copy plaintext button
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'action-btn copy';
+  copyBtn.textContent = 'Copy';
+  copyBtn.onclick = () => copyText(msg.decrypted.plaintext, copyBtn);
+  actions.appendChild(copyBtn);
   
-  // Remove button for each message
+  // Scroll to button
+  const scrollBtn = document.createElement('button');
+  scrollBtn.className = 'action-btn';
+  scrollBtn.textContent = '📍';
+  scrollBtn.title = 'Scroll to message';
+  scrollBtn.onclick = () => scrollToMessage(msg.id);
+  actions.appendChild(scrollBtn);
+  
+  // Remove button
   const removeBtn = document.createElement('button');
   removeBtn.className = 'action-btn remove';
   removeBtn.textContent = '×';
@@ -193,17 +191,10 @@ function createMessageCard(msg) {
   const content = document.createElement('div');
   content.className = 'message-content';
   
-  if (msg.decrypted) {
-    const plaintext = document.createElement('div');
-    plaintext.className = 'message-plaintext';
-    plaintext.textContent = msg.decrypted.plaintext || '(empty message)';
-    content.appendChild(plaintext);
-  } else {
-    const pending = document.createElement('div');
-    pending.className = 'message-pending';
-    pending.textContent = 'Click "Decrypt" to view message';
-    content.appendChild(pending);
-  }
+  const plaintext = document.createElement('div');
+  plaintext.className = 'message-plaintext';
+  plaintext.textContent = msg.decrypted.plaintext || '(empty message)';
+  content.appendChild(plaintext);
   
   const cipherSection = document.createElement('div');
   cipherSection.className = 'message-cipher';
@@ -249,17 +240,17 @@ async function copyText(text, btn) {
 }
 
 /**
- * Request decryption from content script
+ * Scroll to message in page
  */
-async function requestDecrypt(messageId) {
+async function scrollToMessage(messageId) {
   if (!currentTabId) return;
   try {
     await chrome.tabs.sendMessage(currentTabId, {
-      type: 'SIDEPANEL_DECRYPT',
+      type: 'SIDEPANEL_SCROLL',
       payload: { id: messageId },
     });
   } catch (e) {
-    console.error('Decrypt request failed:', e);
+    console.error('Scroll request failed:', e);
   }
 }
 

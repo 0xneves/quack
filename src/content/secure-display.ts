@@ -7,16 +7,14 @@
  * - Chrome Side Panel (list view)
  * 
  * Detection flow:
- * 1. User SELECTS text containing Quack:// pattern
- * 2. Show "Quack? / Copy" card near selection
- * 3. Display decrypted content in secure UI based on hierarchy:
- *    - Side Panel open → show in panel list
- *    - Side Panel closed → show floating bubble
+ * 1. Auto-scan page for Quack:// patterns
+ * 2. Auto-decrypt each cipher found
+ * 3. Display ONLY decrypted messages (no pending state)
+ * 4. Selection as backup for missed ciphers
  */
 
-import { QUACK_MSG_REGEX } from '@/utils/constants';
-import { sendMessageSafe, positionCard } from './utils';
-import { showNotification } from './notifications';
+import { QUACK_MSG_REGEX, MAX_AUTO_DECRYPTS } from '@/utils/constants';
+import { sendMessageSafe, isWithinEditable, positionCard } from './utils';
 
 // ============================================================================
 // Types
@@ -25,7 +23,7 @@ import { showNotification } from './notifications';
 interface DetectedCipher {
   id: string;
   encrypted: string;
-  dismissed: boolean;
+  element: HTMLElement;
   decrypted?: {
     plaintext: string;
     keyName: string;
@@ -66,29 +64,31 @@ export function setSidePanelOpen(open: boolean): void {
     });
     activeBubbles.clear();
     
-    // Sync all detections to side panel
+    // Sync all decrypted ciphers to side panel
     syncToSidePanel();
   }
   
-  // If panel just closed, nothing special to do - user can use selection to trigger decryption
   if (wasOpen && !open) {
     console.log('🦆 Side panel closed');
   }
 }
 
 /**
- * Sync all detected ciphers to the side panel
+ * Sync ONLY decrypted ciphers to the side panel
  */
 function syncToSidePanel(): void {
   if (!sidePanelOpen) return;
   
-  const items = Array.from(detectedCiphers.values()).map(cipher => ({
-    id: cipher.id,
-    encrypted: cipher.encrypted,
-    ciphertextPreview: cipher.encrypted.substring(0, 50) + '...',
-    yPosition: 0, // No position tracking without underlines
-    decrypted: cipher.decrypted,
-  }));
+  // Only send decrypted items - no pending state
+  const items = Array.from(detectedCiphers.values())
+    .filter(cipher => cipher.decrypted) // Only decrypted
+    .map(cipher => ({
+      id: cipher.id,
+      encrypted: cipher.encrypted,
+      ciphertextPreview: cipher.encrypted.substring(0, 50) + '...',
+      yPosition: cipher.element.getBoundingClientRect().top,
+      decrypted: cipher.decrypted,
+    }));
   
   chrome.runtime.sendMessage({
     type: 'SIDEPANEL_SYNC',
@@ -109,9 +109,13 @@ const BUBBLE_MARGIN = 8;
 /**
  * Create a secure bubble iframe for displaying decrypted content
  */
-function createBubble(cipher: DetectedCipher, anchorRect: DOMRect): BubbleState | null {
+function createBubble(cipher: DetectedCipher): BubbleState | null {
+  if (!cipher.decrypted) return null;
+  
   // Close any existing bubble for this cipher
   closeBubble(cipher.id);
+  
+  const rect = cipher.element.getBoundingClientRect();
   
   const frame = document.createElement('iframe');
   frame.src = chrome.runtime.getURL('bubble-decrypt.html');
@@ -128,8 +132,8 @@ function createBubble(cipher: DetectedCipher, anchorRect: DOMRect): BubbleState 
     pointer-events: auto;
   `;
   
-  // Position near the selection
-  const pos = calculateBubblePosition(anchorRect);
+  // Position near the element
+  const pos = calculateBubblePosition(rect);
   frame.style.left = `${pos.left}px`;
   frame.style.top = `${pos.top}px`;
   
@@ -147,7 +151,6 @@ function createBubble(cipher: DetectedCipher, anchorRect: DOMRect): BubbleState 
       const data = evt.data;
       if (data?.type === 'close') {
         closeBubble(cipher.id);
-        cipher.dismissed = true;
       } else if (data?.type === 'copy' && typeof data.text === 'string') {
         navigator.clipboard?.writeText(data.text).catch(console.error);
       }
@@ -209,21 +212,20 @@ function closeBubble(cipherId: string): void {
 }
 
 /**
- * Show bubble for a cipher (if panel not open)
+ * Show decrypted cipher (bubble or panel depending on state)
  */
-async function showBubbleForCipher(cipher: DetectedCipher, anchorRect: DOMRect): Promise<void> {
+function showDecrypted(cipher: DetectedCipher): void {
+  if (!cipher.decrypted) return;
+  
   if (sidePanelOpen) {
     syncToSidePanel();
-    return;
+  } else {
+    createBubble(cipher);
   }
-  
-  if (cipher.dismissed) return;
-  
-  createBubble(cipher, anchorRect);
 }
 
 // ============================================================================
-// Selection Detection
+// Selection Card (Backup Detection Method)
 // ============================================================================
 
 /**
@@ -235,31 +237,17 @@ function extractCipherFromSelection(text: string): string | null {
 }
 
 /**
- * Generate unique ID for a cipher based on content
- */
-function generateCipherId(encrypted: string): string {
-  let hash = 0;
-  for (let i = 0; i < encrypted.length; i++) {
-    const char = encrypted.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `quack-${Math.abs(hash).toString(36)}-${encrypted.length}`;
-}
-
-/**
  * Show selection card near the selection
  */
 function showSelectionCard(encrypted: string, selectionRect: DOMRect): void {
   const cipherId = generateCipherId(encrypted);
   
-  // Get or create cipher entry
-  if (!detectedCiphers.has(cipherId)) {
-    detectedCiphers.set(cipherId, {
-      id: cipherId,
-      encrypted,
-      dismissed: false,
-    });
+  // Check if already decrypted
+  const existing = detectedCiphers.get(cipherId);
+  if (existing?.decrypted) {
+    // Already have it - just show it
+    showDecrypted(existing);
+    return;
   }
   
   // Remove existing card
@@ -282,13 +270,17 @@ function showSelectionCard(encrypted: string, selectionRect: DOMRect): void {
     e.preventDefault();
     e.stopPropagation();
     
-    const cipher = detectedCiphers.get(cipherId);
-    if (cipher) {
-      cipher.dismissed = false;
-      (quackBtn as HTMLButtonElement).disabled = true;
-      (quackBtn as HTMLButtonElement).textContent = '...';
-      await decryptAndShow(cipher, selectionRect);
-    }
+    (quackBtn as HTMLButtonElement).disabled = true;
+    (quackBtn as HTMLButtonElement).textContent = '...';
+    
+    // Create a temporary element for positioning
+    const tempEl = document.createElement('span');
+    tempEl.style.cssText = `position:fixed;left:${selectionRect.left}px;top:${selectionRect.top}px;`;
+    document.body.appendChild(tempEl);
+    
+    await decryptCipher(encrypted, tempEl);
+    
+    tempEl.remove();
     hideSelectionCard();
   });
   
@@ -300,15 +292,13 @@ function showSelectionCard(encrypted: string, selectionRect: DOMRect): void {
       await navigator.clipboard.writeText(encrypted);
       copyBtn.classList.add('copied');
       (copyBtn as HTMLButtonElement).textContent = '✓';
-      setTimeout(() => {
-        hideSelectionCard();
-      }, 500);
+      setTimeout(() => hideSelectionCard(), 500);
     } catch (err) {
       console.error('Copy failed:', err);
     }
   });
   
-  // Prevent card from disappearing immediately when clicking it
+  // Prevent card from disappearing when clicking it
   selectionCardEl.addEventListener('mousedown', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -326,12 +316,11 @@ function hideSelectionCard(): void {
 }
 
 /**
- * Handle selection change
+ * Handle selection change (backup method)
  */
 function handleSelectionChange(): void {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) {
-    // Small delay before hiding to allow clicking the card
     setTimeout(() => {
       if (!selectionCardEl?.matches(':hover')) {
         hideSelectionCard();
@@ -346,14 +335,12 @@ function handleSelectionChange(): void {
     return;
   }
   
-  // Check if selection contains a Quack cipher
   const encrypted = extractCipherFromSelection(text);
   if (!encrypted) {
     hideSelectionCard();
     return;
   }
   
-  // Get selection rect
   const range = selection.getRangeAt(0);
   const rects = range.getClientRects();
   if (rects.length === 0) {
@@ -361,49 +348,64 @@ function handleSelectionChange(): void {
     return;
   }
   
-  // Use the last rect (bottom of selection)
   const lastRect = rects[rects.length - 1];
   showSelectionCard(encrypted, lastRect);
 }
 
 // ============================================================================
-// Decryption
+// Auto-Detection & Decryption
 // ============================================================================
 
 /**
- * Decrypt a cipher and show in secure UI
+ * Generate unique ID for a cipher based on content
  */
-async function decryptAndShow(cipher: DetectedCipher, anchorRect: DOMRect): Promise<void> {
-  if (cipher.decrypted) {
-    // Already decrypted, just show
-    await showBubbleForCipher(cipher, anchorRect);
-    return;
+function generateCipherId(encrypted: string): string {
+  let hash = 0;
+  for (let i = 0; i < encrypted.length; i++) {
+    const char = encrypted.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return `quack-${Math.abs(hash).toString(36)}-${encrypted.length}`;
+}
+
+/**
+ * Decrypt a cipher and store result
+ */
+async function decryptCipher(encrypted: string, element: HTMLElement): Promise<boolean> {
+  const cipherId = generateCipherId(encrypted);
+  
+  // Already processed?
+  if (detectedCiphers.has(cipherId)) {
+    const existing = detectedCiphers.get(cipherId)!;
+    if (existing.decrypted) {
+      showDecrypted(existing);
+      return true;
+    }
+    return false; // Already tried and failed
   }
   
+  // Create entry
+  const cipher: DetectedCipher = {
+    id: cipherId,
+    encrypted,
+    element,
+  };
+  detectedCiphers.set(cipherId, cipher);
+  
   try {
-    console.log('🦆 Attempting to decrypt:', cipher.encrypted.substring(0, 50) + '...');
+    console.log('🦆 Decrypting:', encrypted.substring(0, 50) + '...');
     
     const response = await sendMessageSafe({
       type: 'DECRYPT_MESSAGE',
-      payload: { encryptedMessage: cipher.encrypted },
+      payload: { encryptedMessage: encrypted },
     });
     
-    console.log('🦆 Decrypt response:', response);
-    
-    if (response.blacklisted) {
-      showNotification('🚫 This message is from a blacklisted source');
-      return;
-    }
-    
     if (response.error) {
-      if (response.error.includes('locked')) {
-        showNotification('🔒 Vault is locked. Click the Quack icon to unlock.');
-      } else if (response.error.includes('No key')) {
-        showNotification('🔑 No matching key found for this message');
-      } else {
-        showNotification(`❌ ${response.error}`);
-      }
-      return;
+      console.log('🦆 Decrypt failed:', response.error);
+      // Remove from map - don't track failures
+      detectedCiphers.delete(cipherId);
+      return false;
     }
     
     if (response.plaintext) {
@@ -412,53 +414,122 @@ async function decryptAndShow(cipher: DetectedCipher, anchorRect: DOMRect): Prom
         keyName: response.keyName || 'Unknown',
       };
       decryptionCount++;
-      await showBubbleForCipher(cipher, anchorRect);
-      
-      // Also sync to side panel if open
-      if (sidePanelOpen) {
-        syncToSidePanel();
-      }
-    } else {
-      showNotification('❌ Could not decrypt message');
+      showDecrypted(cipher);
+      return true;
     }
+    
+    // No plaintext = failed
+    detectedCiphers.delete(cipherId);
+    return false;
   } catch (error) {
     console.error('🦆 Decryption error:', error);
-    showNotification('❌ Decryption failed. Is the extension active?');
+    detectedCiphers.delete(cipherId);
+    return false;
   }
+}
+
+/**
+ * Scan an element for Quack ciphertexts
+ */
+async function scanElement(element: HTMLElement): Promise<void> {
+  const text = element.textContent || '';
+  const regex = new RegExp(QUACK_MSG_REGEX.source, 'g');
+  const matches = new Set<string>();
+  
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    matches.add(match[0]);
+  }
+  
+  // Decrypt each unique match
+  for (const encrypted of matches) {
+    if (decryptionCount >= MAX_AUTO_DECRYPTS) {
+      console.log('🦆 Auto-decrypt limit reached');
+      break;
+    }
+    await decryptCipher(encrypted, element);
+  }
+}
+
+/**
+ * Scan visible elements in viewport
+ */
+async function processVisibleElement(element: HTMLElement): Promise<void> {
+  await scanElement(element);
 }
 
 // ============================================================================
 // Setup
 // ============================================================================
 
+const scannedElements = new WeakSet<HTMLElement>();
+
 /**
- * Setup secure selection-based detection
+ * Setup auto-scanning and selection detection
  */
 export function setupSecureScanning(): void {
-  // Listen for text selection changes
-  let selectionTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Intersection Observer for viewport-based scanning
+  const intersectionObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const element = entry.target as HTMLElement;
+          if (!scannedElements.has(element)) {
+            scannedElements.add(element);
+            processVisibleElement(element);
+          }
+        }
+      });
+    },
+    { threshold: 0.1 }
+  );
   
-  document.addEventListener('selectionchange', () => {
-    // Debounce selection changes
-    if (selectionTimeout) {
-      clearTimeout(selectionTimeout);
+  // Scan for Quack patterns and observe elements
+  const scanForQuackPatterns = (root: HTMLElement) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    
+    while ((node = walker.nextNode())) {
+      const text = node.textContent || '';
+      if (QUACK_MSG_REGEX.test(text)) {
+        const parent = node.parentElement;
+        if (parent && !isWithinEditable(parent)) {
+          intersectionObserver.observe(parent);
+        }
+      }
     }
+  };
+  
+  // Initial scan
+  scanForQuackPatterns(document.body);
+  
+  // Mutation Observer for dynamic content
+  const mutationObserver = new MutationObserver((mutations) => {
+    mutations.forEach(mutation => {
+      mutation.addedNodes.forEach(node => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          scanForQuackPatterns(node as HTMLElement);
+        }
+      });
+    });
+  });
+  
+  mutationObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+  
+  // Selection detection (backup method)
+  let selectionTimeout: ReturnType<typeof setTimeout> | null = null;
+  document.addEventListener('selectionchange', () => {
+    if (selectionTimeout) clearTimeout(selectionTimeout);
     selectionTimeout = setTimeout(handleSelectionChange, 150);
   });
   
-  // Hide card on click outside
-  document.addEventListener('mousedown', (e) => {
-    if (selectionCardEl && !selectionCardEl.contains(e.target as Node)) {
-      // Don't hide immediately - let selection handler deal with it
-    }
-  });
+  // Hide selection card on scroll
+  window.addEventListener('scroll', () => hideSelectionCard(), { passive: true });
   
-  // Hide card on scroll
-  window.addEventListener('scroll', () => {
-    hideSelectionCard();
-  }, { passive: true });
-  
-  // SPA navigation detection - clear all state when URL changes
+  // SPA navigation detection
   let lastUrl = window.location.href;
   const checkUrlChange = () => {
     if (window.location.href !== lastUrl) {
@@ -471,11 +542,11 @@ export function setupSecureScanning(): void {
   window.addEventListener('popstate', checkUrlChange);
   setInterval(checkUrlChange, 500);
   
-  console.log('🦆 Secure selection-based detection enabled');
+  console.log('🦆 Auto-detection enabled (no underlines)');
 }
 
 /**
- * Clear all state (for SPA navigation)
+ * Clear all state
  */
 function clearAllState(): void {
   detectedCiphers.clear();
@@ -483,32 +554,59 @@ function clearAllState(): void {
   activeBubbles.clear();
   hideSelectionCard();
   decryptionCount = 0;
+  scannedElements.delete = () => false; // Can't actually clear WeakSet, but new elements will be tracked
   
-  // Notify side panel to clear
   if (sidePanelOpen) {
     syncToSidePanel();
   }
 }
 
 /**
- * Reset scanner state (called on vault update)
+ * Reset scanner state
  */
 export function resetSecureScanner(): void {
   decryptionCount = 0;
-  
-  // Clear decryption cache but keep cipher entries
   detectedCiphers.forEach(cipher => {
     cipher.decrypted = undefined;
-    cipher.dismissed = false;
   });
+  detectedCiphers.clear();
 }
 
 /**
- * Force rescan - with selection-based detection, just reset state
+ * Force rescan
  */
 export function rescanSecure(): void {
   resetSecureScanner();
-  console.log('🦆 Scanner reset, ready for new selections');
+  
+  // Re-scan visible elements
+  const intersectionObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          processVisibleElement(entry.target as HTMLElement);
+          intersectionObserver.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.1 }
+  );
+  
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const elements = new Set<HTMLElement>();
+  let node: Node | null;
+  
+  while ((node = walker.nextNode())) {
+    const text = node.textContent || '';
+    if (QUACK_MSG_REGEX.test(text)) {
+      const parent = node.parentElement;
+      if (parent && !isWithinEditable(parent)) {
+        elements.add(parent);
+      }
+    }
+  }
+  
+  elements.forEach(el => intersectionObserver.observe(el));
+  console.log(`🦆 Rescanning ${elements.size} elements`);
 }
 
 // ============================================================================
@@ -516,43 +614,42 @@ export function rescanSecure(): void {
 // ============================================================================
 
 /**
- * Handle decrypt request from side panel
+ * Handle decrypt request from side panel (not needed anymore but keep for compatibility)
  */
 export async function handleSidePanelDecrypt(cipherId: string): Promise<void> {
   const cipher = detectedCiphers.get(cipherId);
-  if (!cipher) {
-    console.warn('🦆 Cipher not found for decrypt request:', cipherId);
-    return;
-  }
+  if (!cipher || cipher.decrypted) return;
   
-  // Create a dummy rect for the bubble (center of screen if no position)
-  const dummyRect = new DOMRect(
-    window.innerWidth / 2 - 100,
-    window.innerHeight / 2 - 50,
-    200,
-    100
-  );
-  
-  await decryptAndShow(cipher, dummyRect);
+  // This shouldn't happen since we only show decrypted items
+  console.warn('🦆 Unexpected decrypt request for:', cipherId);
 }
 
 /**
- * Handle scroll request from side panel - not applicable without underlines
+ * Handle scroll request from side panel
  */
 export function handleSidePanelScroll(cipherId: string): void {
   const cipher = detectedCiphers.get(cipherId);
-  if (!cipher) {
-    console.warn('🦆 Cipher not found for scroll request:', cipherId);
-    return;
-  }
+  if (!cipher) return;
   
-  // Without underlines, we can't scroll to position
-  // Just show a notification
-  showNotification('📍 Select the encrypted text to decrypt it');
+  const rect = cipher.element.getBoundingClientRect();
+  const targetY = rect.top + window.scrollY - window.innerHeight / 3;
+  
+  window.scrollTo({
+    top: targetY,
+    behavior: 'smooth',
+  });
+  
+  // Flash effect on element
+  const originalBg = cipher.element.style.background;
+  cipher.element.style.transition = 'background 0.2s ease';
+  cipher.element.style.background = 'rgba(234, 113, 26, 0.2)';
+  setTimeout(() => {
+    cipher.element.style.background = originalBg;
+  }, 1500);
 }
 
 /**
- * Get all detected ciphers (for external access)
+ * Get all detected ciphers
  */
 export function getDetectedCiphers(): Map<string, DetectedCipher> {
   return detectedCiphers;
