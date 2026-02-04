@@ -76,11 +76,22 @@ Messages are **automatically decrypted** when you visit a page:
 
 ### Groups
 
-Create groups to share keys with multiple people:
+Create groups to share encrypted keys with multiple people:
+
+**Creating a group:**
 1. Go to Dashboard → Groups → Create Group
-2. Generate a group encryption key
-3. Share the invite link with trusted members
-4. All members can encrypt/decrypt group messages
+2. Name your group — a shared AES-256 key is generated
+
+**Inviting members:**
+1. The person must already be in your Contacts (you need their public key)
+2. Select the contact → an invite is created encrypted specifically for them
+3. Share the invite link — only the intended recipient can decrypt it
+
+**Accepting an invite:**
+1. Receive the invite string (`Quack://INV:...`)
+2. Your extension detects it automatically (or paste into Dashboard)
+3. Your private key decrypts the invite → you receive the group key
+4. Now you can encrypt/decrypt group messages
 
 ### Backup & Restore
 
@@ -102,7 +113,7 @@ Type `Quack://` to open an isolated composer — protected from page analytics, 
 Extension automatically detects and decrypts `Quack://` messages using your saved keys.
 
 ### Groups
-Create shared encryption groups. Invite members via fingerprint verification.
+Create shared encryption groups. Invites are encrypted per-recipient using Kyber key exchange — only the intended contact can accept.
 
 ### Vault Backup
 Export/import your entire vault with AES-256 encryption.
