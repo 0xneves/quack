@@ -1,4 +1,4 @@
-# 🦆 Quack - Universal Web Encryption Extension
+# Quack - Universal Web Encryption Extension
 
 [![Tests](https://github.com/0xneves/quack/actions/workflows/test.yml/badge.svg)](https://github.com/0xneves/quack/actions/workflows/test.yml)
 
@@ -6,7 +6,7 @@
 
 **Quack** is a browser extension that enables end-to-end encrypted messaging on any website. Communicate privately on YouTube, Twitter, Reddit, or anywhere on the web—without requiring anyone to switch platforms.
 
-## 🎯 Why Quack?
+## Why Quack?
 
 People want secure communications, but moving friends to new platforms is nearly impossible. Signal is secure, but requires everyone to leave their existing apps.
 
@@ -19,7 +19,7 @@ People want secure communications, but moving friends to new platforms is nearly
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### From Source (Development)
 
@@ -47,19 +47,19 @@ People want secure communications, but moving friends to new platforms is nearly
 
 ### Browser Support
 
-- ✅ Chrome
-- ✅ Edge
-- ✅ Brave
-- ✅ Any Chromium-based browser
+- Chrome
+- Edge
+- Brave
+- Any Chromium-based browser
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### First Time Setup
 
 1. Click the Quack extension icon
-2. Create a master password (this protects your keys)
+2. Create a master password (this protects your vault)
 3. Generate your first encryption key
 4. Share the key with trusted contacts (via Signal, in-person, etc.)
 
@@ -75,7 +75,7 @@ People want secure communications, but moving friends to new platforms is nearly
 
 Messages are **automatically decrypted** when you visit a page:
 - The extension scans for `Quack://...` patterns
-- If you have the matching key, plaintext appears with a 🔓 indicator
+- If you have the matching key, plaintext appears with a lock indicator
 - Only you (and others with the key) can read the message
 
 ### Groups
@@ -99,59 +99,57 @@ Create groups to share keys with multiple people:
 
 ---
 
-## ✨ Features
+## Features
 
-### 🔐 Secure Compose Mode
+### Secure Compose Mode
 Type `Quack://` to open an isolated composer — protected from page analytics, keyloggers, and tracking scripts.
 
-### 🤖 Auto-Decryption
+### Auto-Decryption
 Extension automatically detects and decrypts `Quack://` messages using your saved keys.
 
-### 👥 Groups
+### Groups
 Create shared encryption groups. Invite members via fingerprint verification.
 
-### 💾 Vault Backup
+### Vault Backup
 Export/import your entire vault with AES-256 encryption.
 
-### 🛡️ Wallet-Grade Security
+### Wallet-Grade Security
 - Session storage (keys never touch disk while unlocked)
 - Auto-lock after inactivity
-- PBKDF2 key derivation (100k iterations)
 - Memory cleared on lock/browser close
 
-### ⚡ Performance Optimized
+### Performance Optimized
 Smart viewport scanning — only processes visible content. Limits auto-decryption to prevent spam attacks.
 
 ---
 
-## 🔒 Security
+## Security
 
 ### Cryptography
 
-| Component | Algorithm | Standard |
-|-----------|-----------|----------|
-| Key Encapsulation | ML-KEM-768 | NIST FIPS 203 |
-| Message Encryption | AES-256-GCM | NIST |
-| Key Derivation | PBKDF2-SHA256 | 100k iterations |
-| Group Keys | AES-256-GCM | Wrapped with member keys |
+| Purpose | Algorithm | Notes |
+|---------|-----------|-------|
+| Key Exchange | ML-KEM-768 | Post-quantum (NIST FIPS 203). Used for secure group invitations. |
+| Message Encryption | AES-256-GCM | Symmetric encryption for all messages. |
+| Vault Encryption | AES-256-GCM + PBKDF2 | Master password derives key via PBKDF2 (100k iterations). |
 
 ### Protections
 
-- ✅ Post-quantum resistant (ML-KEM-768)
-- ✅ Keys encrypted at rest
-- ✅ Session-only storage (wallet-grade)
-- ✅ Isolated compose window (no page script access)
-- ✅ Spam protection (10 auto-decrypts per viewport)
+- Post-quantum resistant key exchange (ML-KEM-768)
+- Keys encrypted at rest with master password
+- Session-only storage (keys never written to disk while unlocked)
+- Isolated compose window (no page script access)
+- Spam protection (10 auto-decrypts per viewport)
 
 ### Limitations
 
-- ❌ No forward secrecy (static keys)
-- ❌ No sender authentication (no signatures yet)
-- ⚠️ Metadata visible to platforms (message length, timing)
+- No forward secrecy (static keys)
+- No sender authentication (no signatures yet)
+- Metadata visible to platforms (message length, timing)
 
 ---
 
-## 🧪 Development
+## Development
 
 ### Scripts
 
@@ -180,7 +178,7 @@ src/
 ├── crypto/         # Cryptographic operations
 │   ├── aes.ts      # AES-256-GCM
 │   ├── kyber.ts    # ML-KEM-768 (post-quantum)
-│   ├── pbkdf2.ts   # Key derivation
+│   ├── pbkdf2.ts   # Key derivation for vault
 │   ├── message.ts  # Message format
 │   └── group.ts    # Group key management
 ├── popup/          # React popup UI
@@ -208,19 +206,15 @@ npm test
 
 ---
 
-## 📄 License
-
-MIT — see [LICENSE](./LICENSE)
-
----
-
-## 👥 Authors
+## Authors
 
 - **Guilherme Neves** ([@0xneves](https://github.com/0xneves)) — Creator
 - **Jarvis** — AI Development Partner
 
----
+## License
 
-**Built with 🦆 for a more private web**
+MIT — see [LICENSE](./LICENSE)
+
+---
 
 *This is experimental software. Use at your own risk. Always share keys via secure channels.*
