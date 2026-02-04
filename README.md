@@ -1,283 +1,226 @@
 # 🦆 Quack - Universal Web Encryption Extension
 
+[![Tests](https://github.com/0xneves/quack/actions/workflows/test.yml/badge.svg)](https://github.com/0xneves/quack/actions/workflows/test.yml)
+
 > Make the web private without changing platforms.
 
 **Quack** is a browser extension that enables end-to-end encrypted messaging on any website. Communicate privately on YouTube, Twitter, Reddit, or anywhere on the web—without requiring anyone to switch platforms.
 
----
+## 🎯 Why Quack?
 
-## 🎯 Vision
+People want secure communications, but moving friends to new platforms is nearly impossible. Signal is secure, but requires everyone to leave their existing apps.
 
-People want secure communications, but moving friends to new platforms is nearly impossible. Signal is secure, but requires everyone to leave their existing apps. Quack solves this by **encrypting the web itself**.
+**Quack solves this by encrypting the web itself.**
 
-### The Problem
-- Secure chat apps require everyone to switch platforms
-- Private conversations on Twitter/Instagram aren't quantum-resistant
-- No universal solution for web privacy
-
-### The Solution
-- **Encrypt anywhere**: YouTube comments, Twitter DMs, Reddit posts, anywhere
-- **No platform switching**: Use existing websites with end-to-end encryption
-- **Quantum-resistant**: Post-quantum cryptography (CRYSTALS-Kyber) + AES-256
-- **User-friendly**: Works like Grammarly—automatic and seamless
+- **Encrypt anywhere** — YouTube comments, Twitter DMs, Reddit posts, anywhere
+- **No platform switching** — Use existing websites with end-to-end encryption
+- **Quantum-resistant** — Post-quantum cryptography (ML-KEM-768) + AES-256-GCM
+- **Wallet-grade security** — MetaMask-style vault with master password protection
 
 ---
 
-## ✨ Key Features
+## 📦 Installation
 
-### 🔐 **Secure Compose Mode**
-Type `Quack://` in any input field to open an isolated composer—protected from page analytics, keyloggers, and tracking scripts.
+### From Source (Development)
 
-### 🤖 **Auto-Decryption**
-Extension automatically detects and decrypts `Quack://` messages on pages using your saved keys.
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/0xneves/quack.git
+   cd quack
+   ```
 
-### 🔑 **Key Management**
-Metamask-style key vault with master password protection. Generate, name, and manage multiple encryption keys.
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-### 🛡️ **Post-Quantum Cryptography**
-Future-proof encryption using NIST-standard CRYSTALS-Kyber for key generation + AES-256-GCM for messages.
+3. **Build the extension**
+   ```bash
+   npm run build
+   ```
 
-### ⚡ **Performance Optimized**
-Smart viewport scanning—only processes visible content. Limits auto-decryption to prevent spam attacks.
+4. **Load in Chrome**
+   - Open `chrome://extensions/`
+   - Enable "Developer mode" (top right)
+   - Click "Load unpacked"
+   - Select the `dist/` folder
 
-### 🎨 **Beautiful UI**
-Grammarly-inspired overlays and modern popup interface with dark mode support.
+### Browser Support
 
----
-
-## 🏗️ Technology Stack
-
-### **Browser Extension**
-- **Manifest V3**: Modern Chrome extension standard
-- **TypeScript**: Type-safe development
-- **Webpack/Vite**: Module bundling and build optimization
-
-### **Frontend (Popup Interface)**
-- **React/Preact**: Component-based UI architecture
-- **TailwindCSS**: Utility-first styling framework
-- **shadcn/ui**: Modern, accessible component library
-
-### **Cryptography**
-- **CRYSTALS-Kyber**: Post-quantum key encapsulation (NIST standard)
-- **Web Crypto API (SubtleCrypto)**: AES-256-GCM encryption
-- **PBKDF2**: Password-based key derivation (100,000+ iterations)
-
-### **Storage & Security**
-- **chrome.storage.local**: Encrypted key vault storage
-- **IndexedDB**: (Optional) for larger data structures
-- **Content Security Policy**: XSS protection
-- **Isolated Contexts**: Content script isolation from page scripts
-
-### **Content Integration**
-- **MutationObserver**: Real-time DOM change detection
-- **IntersectionObserver**: Viewport visibility tracking
-- **Shadow DOM**: UI component isolation
-- **Selection API**: Text selection handling
+- ✅ Chrome
+- ✅ Edge
+- ✅ Brave
+- ✅ Any Chromium-based browser
 
 ---
 
-## 🚀 How It Works
+## 🚀 Quick Start
 
-### **Encryption Flow**
+### First Time Setup
 
-```
-1. User types in any input field: "Quack://"
-2. Extension detects trigger and shows prompt
-3. User opens secure composer (isolated from page)
-4. User types message: "Hello World"
-5. User selects encryption key: "Personal"
-6. Extension encrypts with AES-256-GCM
-7. Result copied to clipboard: "Quack://h12od1j29DAk29Fd84jfDf39fhaG91..."
-8. User pastes into original field
-9. Message posted publicly (but encrypted)
-```
+1. Click the Quack extension icon
+2. Create a master password (this protects your keys)
+3. Generate your first encryption key
+4. Share the key with trusted contacts (via Signal, in-person, etc.)
 
-### **Decryption Flow**
+### Encrypting Messages
 
-```
-1. Page loads with encrypted message: "Quack://h12od1j29DAk29Fd84jfDf39fhaG91..."
-2. Extension detects "Quack://" prefix
-3. Extension tries all saved keys sequentially
-4. Finds matching key "Personal"
-5. Decrypts message to "Hello World"
-6. Updates DOM to show decrypted text with 🔓 icon
-7. Only users with the key see the plaintext
-```
+1. Type `Quack://` in any text field on any website
+2. A secure compose window opens (isolated from page scripts)
+3. Write your message and select which key to encrypt with
+4. Click "Encrypt & Copy" — the ciphertext is copied to clipboard
+5. Paste into the original field and send
 
-### **Security Architecture**
+### Decrypting Messages
 
-```
-Master Password (user input)
-    ↓
-PBKDF2 (100k+ iterations)
-    ↓
-Derived Encryption Key (DEK)
-    ↓
-Encrypts Key Vault
-    ↓
-Stored in chrome.storage.local
-    
-At Runtime:
-    ↓
-User unlocks vault with password
-    ↓
-Keys loaded into memory
-    ↓
-Used for message encryption/decryption
-    ↓
-Cleared from memory after use
-```
+Messages are **automatically decrypted** when you visit a page:
+- The extension scans for `Quack://...` patterns
+- If you have the matching key, plaintext appears with a 🔓 indicator
+- Only you (and others with the key) can read the message
+
+### Groups
+
+Create groups to share keys with multiple people:
+1. Go to Dashboard → Groups → Create Group
+2. Generate a group encryption key
+3. Share the invite link with trusted members
+4. All members can encrypt/decrypt group messages
+
+### Backup & Restore
+
+**Export your vault** (Settings → Export):
+- Creates an encrypted backup file
+- Protected with a separate export password (20+ characters)
+- Safe to store in cloud storage
+
+**Import a backup**:
+- Fresh install: "Restore from Backup" on first launch
+- Existing vault: Settings → Import to merge keys
 
 ---
 
-## 🔒 Security Features
+## ✨ Features
 
-### **Secure Compose Mode**
-Protects against:
-- ✅ Page-level keyloggers
-- ✅ Analytics tracking (Google Analytics, Hotjar)
-- ✅ Malicious scripts
-- ✅ Browser extensions snooping on input
+### 🔐 Secure Compose Mode
+Type `Quack://` to open an isolated composer — protected from page analytics, keyloggers, and tracking scripts.
 
-### **Encryption Blacklist**
-Prevents auto-decryption of recently encrypted messages (avoids showing plaintext immediately after encryption).
+### 🤖 Auto-Decryption
+Extension automatically detects and decrypts `Quack://` messages using your saved keys.
 
-### **Spam Protection**
-- Auto-decryption limited to 10 messages per viewport
-- Warning shown for excessive encrypted content
-- Manual decrypt mode for additional messages
+### 👥 Groups
+Create shared encryption groups. Invite members via fingerprint verification.
 
-### **Key Storage**
-- Master password never stored
-- Keys encrypted at rest with password-derived key
-- Keys cleared from memory after operations
-- No key material in logs or console
+### 💾 Vault Backup
+Export/import your entire vault with AES-256 encryption.
+
+### 🛡️ Wallet-Grade Security
+- Session storage (keys never touch disk while unlocked)
+- Auto-lock after inactivity
+- PBKDF2 key derivation (100k iterations)
+- Memory cleared on lock/browser close
+
+### ⚡ Performance Optimized
+Smart viewport scanning — only processes visible content. Limits auto-decryption to prevent spam attacks.
 
 ---
 
-## ⚠️ Security Considerations
+## 🔒 Security
 
-**Limitations** (MVP):
+### Cryptography
+
+| Component | Algorithm | Standard |
+|-----------|-----------|----------|
+| Key Encapsulation | ML-KEM-768 | NIST FIPS 203 |
+| Message Encryption | AES-256-GCM | NIST |
+| Key Derivation | PBKDF2-SHA256 | 100k iterations |
+| Group Keys | AES-256-GCM | Wrapped with member keys |
+
+### Protections
+
+- ✅ Post-quantum resistant (ML-KEM-768)
+- ✅ Keys encrypted at rest
+- ✅ Session-only storage (wallet-grade)
+- ✅ Isolated compose window (no page script access)
+- ✅ Spam protection (10 auto-decrypts per viewport)
+
+### Limitations
+
 - ❌ No forward secrecy (static keys)
-- ❌ No sender authentication (no digital signatures)
-- ⚠️ Metadata not hidden (message length, timing visible to platforms)
-- ⚠️ Client-side storage vulnerable to system-level malware
-
-**User Responsibilities**:
-- Use strong master password
-- Share keys only via secure channels (Signal, in-person)
-- Understand that lost passwords = lost keys forever (no recovery)
-- Don't share private keys on platforms you're trying to secure
+- ❌ No sender authentication (no signatures yet)
+- ⚠️ Metadata visible to platforms (message length, timing)
 
 ---
 
-## 📊 Project Status
+## 🧪 Development
 
-**Current Phase**: Planning Complete ✅  
-**Target MVP Release**: ~4-5 weeks from development start  
-**Browser Support**: Chrome, Edge, Brave (Chromium-based)
+### Scripts
 
-### **Development Roadmap**
-
-| Phase | Status | Deliverables |
-|-------|--------|--------------|
-| Phase 1: Foundation | ⏳ Pending | Extension skeleton, build system |
-| Phase 2: Cryptography | ⏳ Pending | Kyber + AES-256, key vault |
-| Phase 3: Key Management | ⏳ Pending | Master password, popup UI |
-| Phase 4: Secure Compose | ⏳ Pending | Trigger detection, isolated composer |
-| Phase 5: Auto-Decryption | ⏳ Pending | DOM scanning, viewport tracking |
-| Phase 6: Manual Decryption | ⏳ Pending | Text selection, context menu |
-| Phase 7: UI Polish | ⏳ Pending | Design, animations, dark mode |
-| Phase 8: Testing | ⏳ Pending | Cross-platform testing, security audit |
-
----
-
-## 🎨 User Interface Preview
-
-### **Key Management Dashboard**
-```
-╔══════════════════════════════════╗
-║  Quack 🦆          [⚙️] [🔒Lock] ║
-╠══════════════════════════════════╣
-║  Your Encryption Keys            ║
-║                                  ║
-║  📝 Personal                     ║
-║     Created: Jan 1, 2025   [Edit]║
-║                                  ║
-║  📝 Work Team                    ║
-║     Created: Jan 2, 2025   [Edit]║
-║                                  ║
-║     [+ Generate New Key]         ║
-╚══════════════════════════════════╝
+```bash
+npm run build       # Production build
+npm run dev         # Development mode with watch
+npm run test        # Run test suite
+npm run test:watch  # Run tests in watch mode
+npm run type-check  # TypeScript type checking
+npm run lint        # ESLint
 ```
 
-### **Secure Compose Window**
+### Project Structure
+
 ```
-╔═══════════════════════════════════════╗
-║  Secure Message Compose 🔒            ║
-╠═══════════════════════════════════════╣
-║  Compose your message securely        ║
-║  (protected from page analytics)      ║
-║                                       ║
-║  ┌─────────────────────────────────┐ ║
-║  │ Type your message here...       │ ║
-║  └─────────────────────────────────┘ ║
-║                                       ║
-║  Encrypt with key:                    ║
-║  [▼ Personal_______________]          ║
-║                                       ║
-║  [Cancel]        [Encrypt & Copy] 🦆  ║
-╚═══════════════════════════════════════╝
+src/
+├── background/     # Service worker
+├── content/        # Content script modules
+│   ├── content-script.ts    # Entry point
+│   ├── dom-scanner.ts       # MutationObserver, scanning
+│   ├── inline-highlight.ts  # Decrypted message display
+│   ├── input-detector.ts    # Quack:// trigger detection
+│   ├── notifications.ts     # Toast messages
+│   ├── overlay-manager.ts   # Secure compose overlay
+│   └── utils.ts
+├── crypto/         # Cryptographic operations
+│   ├── aes.ts      # AES-256-GCM
+│   ├── kyber.ts    # ML-KEM-768 (post-quantum)
+│   ├── pbkdf2.ts   # Key derivation
+│   ├── message.ts  # Message format
+│   └── group.ts    # Group key management
+├── popup/          # React popup UI
+│   ├── screens/    # Dashboard, Settings, Import, etc.
+│   └── App.tsx
+├── storage/        # Vault and settings
+│   ├── vault.ts    # Encrypted key storage
+│   ├── settings.ts # Session management
+│   └── export.ts   # Backup/restore
+└── types/          # TypeScript definitions
 ```
 
----
+### Testing
 
-## 🔮 Future Enhancements
+54 tests covering:
+- Cryptographic operations (AES, ML-KEM, PBKDF2)
+- Message encoding/decoding
+- Vault operations
+- Export/import flows
+- Group key management
 
-**Version 2.0**:
-- QR code key sharing
-- Digital signatures (authentication)
-- Forward secrecy with ratcheting
-- Group chat support
-- Mobile app (React Native)
-
-**Version 3.0**:
-- Decentralized key directory
-- File/image encryption
-- Voice note encryption
-- Cross-device sync
-
----
-
-## 📚 Documentation
-
-- [**PLAN.md**](./PLAN.md) - Comprehensive development plan and technical specification
-- **User Guide** (Coming soon)
-- **Security Audit** (Post-MVP)
-- **API Documentation** (Coming soon)
-
----
-
-## 🤝 Contributing
-
-This is currently in active development. Contribution guidelines will be published after MVP release.
+```bash
+npm test
+```
 
 ---
 
 ## 📄 License
 
-TBD
+MIT — see [LICENSE](./LICENSE)
 
 ---
 
-## 🦆 Philosophy
+## 👥 Authors
 
-**"Make the web quack-tastic!"**
-
-Privacy shouldn't require abandoning the platforms you love. Quack brings encryption to your existing web experience—seamlessly, securely, and universally.
+- **Guilherme Neves** ([@0xneves](https://github.com/0xneves)) — Creator
+- **Jarvis** — AI Development Partner
 
 ---
 
-**Built with 💙 for a more private web**
+**Built with 🦆 for a more private web**
 
-*Note: This is experimental software. Use at your own risk. Always share keys securely.*
+*This is experimental software. Use at your own risk. Always share keys via secure channels.*

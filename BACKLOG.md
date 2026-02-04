@@ -117,27 +117,35 @@ src/content/
 
 ---
 
-## 4. Documentation
+## 4. Documentation ✅
 
 **Goal:** Professional, up-to-date documentation.
 
+**COMPLETED (2026-02-04):**
+
 ### README.md Overhaul
-- [ ] Update project status (most phases DONE, not Pending)
-- [ ] Add installation instructions
-- [ ] Add usage guide with screenshots
-- [ ] Add GitHub Actions badge for tests
-- [ ] Clean up outdated roadmap
-- [ ] Add Authors section at bottom (Neves + Jarvis)
+- [x] Update project status (most phases DONE, not Pending)
+- [x] Add installation instructions
+- [x] Add usage guide with screenshots
+- [x] Add GitHub Actions badge for tests
+- [x] Clean up outdated roadmap
+- [x] Add Authors section at bottom (Neves + Jarvis)
 
 ### Code Documentation
-- [ ] Add JSDoc comments to all public functions
-- [ ] Document crypto module thoroughly
-- [ ] Document message format specification
+- [x] Add JSDoc comments to all public functions
+- [x] Document crypto module thoroughly
+- [x] Document message format specification
 
 ### GitHub Actions
-- [ ] Create `.github/workflows/test.yml`
-- [ ] Run tests on push/PR
-- [ ] Add badge to README
+- [x] Create `.github/workflows/test.yml`
+- [x] Run tests on push/PR
+- [x] Add badge to README
+
+### Added Files
+- `.github/workflows/test.yml` — CI workflow for Node 20.x/22.x
+- `LICENSE` — MIT license file
+
+**Commit:** (pending)
 
 ---
 
