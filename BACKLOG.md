@@ -149,9 +149,11 @@ src/content/
 
 ---
 
-## 5. Versioning + Branching
+## 5. Versioning + Branching ✅
 
 **Goal:** Professional release workflow.
+
+**COMPLETED (2026-02-04):**
 
 ### Branching Strategy
 - `main` = stable releases only
@@ -167,10 +169,18 @@ src/content/
 - Update `manifest.json` version
 
 ### Setup Tasks
-- [ ] Create `develop` branch from current `main`
-- [ ] Set `develop` as default branch
-- [ ] Protect `main` (require PR)
-- [ ] Add version bump script or use `npm version`
+- [x] Create `develop` branch from current `main`
+- [x] Set version to v0.1.0 in package.json and manifest.json
+- [x] Tag v0.1.0 release
+- [x] Push develop branch to origin
+
+### GitHub Settings (Neves needs to do in GitHub UI)
+- [ ] Set `develop` as default branch (Settings → Default branch)
+- [ ] Protect `main` (Settings → Branches → Add rule → require PR)
+
+**Commits:**
+- `cf92b34` — Version bump to v0.1.0
+- Tag: `v0.1.0`
 
 ---
 
@@ -179,23 +189,12 @@ src/content/
 **Goal:** Ready for open source collaboration.
 
 ### Tasks
+- [x] Add LICENSE file (MIT) — Done in #4
+- [x] Update README Authors section — Done in #4
 - [ ] Review code for any secrets/sensitive data
-- [ ] Add LICENSE file (MIT per package.json)
 - [ ] Add CONTRIBUTING.md
 - [ ] Add CODE_OF_CONDUCT.md (optional)
-- [ ] Update README Authors section
-- [ ] Add collaborators section to README
-- [ ] Change repo visibility to public
-
-### Authors Section (for README)
-```markdown
-## Authors
-
-- **Guilherme Neves** ([@0xneves](https://github.com/0xneves)) — Creator
-- **Jarvis** — AI Development Partner
-
-Built with 🦆 for a more private web.
-```
+- [ ] Change repo visibility to public (GitHub Settings)
 
 ---
 
