@@ -6,11 +6,12 @@ interface OnboardingScreenProps {
   vaultData: VaultData;
   onVaultUpdate: (vault: VaultData) => void;
   onComplete: () => void;
+  onImport?: () => void;
 }
 
 type Step = 'welcome' | 'generate-identity' | 'share-key' | 'complete';
 
-function OnboardingScreen({ vaultData, onVaultUpdate, onComplete }: OnboardingScreenProps) {
+function OnboardingScreen({ vaultData, onVaultUpdate, onComplete, onImport }: OnboardingScreenProps) {
   const [step, setStep] = useState<Step>('welcome');
   const [identityName, setIdentityName] = useState('Personal');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -90,6 +91,15 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete }: OnboardingSc
           >
             Let's Get Started →
           </button>
+          
+          {onImport && (
+            <button
+              onClick={onImport}
+              className="w-full max-w-sm mt-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-3 px-6 rounded-xl transition duration-200"
+            >
+              📥 Restore from Backup
+            </button>
+          )}
         </div>
       </div>
     );

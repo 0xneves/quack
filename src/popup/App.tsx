@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { vaultExists, unlockVault, createVault } from '@/storage/vault';
+import { vaultExists, unlockVault, createVault, saveVault } from '@/storage/vault';
 import { getSession, markVaultUnlocked, markVaultLocked } from '@/storage/settings';
 import type { VaultData } from '@/types';
 import SetupScreen from './screens/SetupScreen';
@@ -9,8 +9,10 @@ import SecureComposeScreen from './screens/SecureComposeScreen';
 import ManualDecryptScreen from './screens/ManualDecryptScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import ConnectFlowScreen from './screens/ConnectFlowScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import ImportScreen from './screens/ImportScreen';
 
-type Screen = 'loading' | 'setup' | 'login' | 'dashboard' | 'compose' | 'decrypt' | 'onboarding' | 'connect';
+type Screen = 'loading' | 'setup' | 'login' | 'dashboard' | 'compose' | 'decrypt' | 'onboarding' | 'connect' | 'settings' | 'import' | 'import-fresh';
 
 function App() {
   const [screen, setScreen] = useState<Screen>('loading');
@@ -116,7 +118,38 @@ function App() {
     setScreen('connect');
   }
 
+  function handleSettings() {
+    setScreen('settings');
+  }
+
+  function handleImport() {
+    setScreen('import');
+  }
+
+  function handleImportFresh() {
+    setScreen('import-fresh');
+  }
+
   function handleBackToDashboard() {
+    setScreen('dashboard');
+  }
+
+  async function handleImportComplete(newVault: VaultData) {
+    setVaultData(newVault);
+    // Save to storage
+    await saveVault(newVault, masterPassword);
+    // Update background cache
+    await cacheVaultInBackground(newVault, masterPassword);
+    setScreen('dashboard');
+  }
+
+  async function handleImportFreshComplete(newVault: VaultData) {
+    setVaultData(newVault);
+    // Save to storage
+    await saveVault(newVault, masterPassword);
+    // Update background cache
+    await cacheVaultInBackground(newVault, masterPassword);
+    // Go directly to dashboard since they have restored keys
     setScreen('dashboard');
   }
 
@@ -176,6 +209,18 @@ function App() {
         vaultData={vaultData}
         onVaultUpdate={handleVaultUpdate}
         onComplete={handleOnboardingComplete}
+        onImport={handleImportFresh}
+      />
+    );
+  }
+
+  if (screen === 'import-fresh' && vaultData) {
+    return (
+      <ImportScreen
+        vaultData={vaultData}
+        onComplete={handleImportFreshComplete}
+        onBack={() => setScreen('onboarding')}
+        isFreshInstall={true}
       />
     );
   }
@@ -190,6 +235,26 @@ function App() {
     );
   }
 
+  if (screen === 'settings' && vaultData) {
+    return (
+      <SettingsScreen
+        vaultData={vaultData}
+        onBack={handleBackToDashboard}
+        onImport={handleImport}
+      />
+    );
+  }
+
+  if (screen === 'import' && vaultData) {
+    return (
+      <ImportScreen
+        vaultData={vaultData}
+        onComplete={handleImportComplete}
+        onBack={handleSettings}
+      />
+    );
+  }
+
   if (screen === 'dashboard' && vaultData) {
     return (
       <DashboardScreen
@@ -199,6 +264,7 @@ function App() {
         onCompose={handleCompose}
         onDecrypt={handleDecrypt}
         onConnect={handleConnect}
+        onSettings={handleSettings}
       />
     );
   }

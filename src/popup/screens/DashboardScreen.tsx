@@ -28,6 +28,7 @@ interface DashboardScreenProps {
   onCompose: () => void;
   onDecrypt: () => void;
   onConnect?: () => void;
+  onSettings?: () => void;
 }
 
 type TabType = 'identity' | 'contacts' | 'groups';
@@ -36,7 +37,7 @@ type ModalType = 'newIdentity' | 'addContact' | 'keyDetails' | 'newGroup' | 'gro
 // Common emoji options for groups
 const GROUP_EMOJIS = ['🦆', '🔐', '👥', '🏠', '💼', '🎮', '🎵', '📚', '🌟', '💬', '🔒', '🛡️'];
 
-function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecrypt, onConnect }: DashboardScreenProps) {
+function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecrypt, onConnect, onSettings }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<TabType>('groups');
   const [modal, setModal] = useState<ModalType>(null);
   const [newKeyName, setNewKeyName] = useState('');
@@ -311,12 +312,22 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
             <span className="text-3xl">🦆</span>
             <h1 className="text-2xl font-bold text-gray-900">Quack</h1>
           </div>
-          <button
-            onClick={onLock}
-            className="text-gray-500 hover:text-gray-700 font-medium"
-          >
-            🔒 Lock
-          </button>
+          <div className="flex items-center gap-3">
+            {onSettings && (
+              <button
+                onClick={onSettings}
+                className="text-gray-500 hover:text-gray-700 font-medium"
+              >
+                ⚙️
+              </button>
+            )}
+            <button
+              onClick={onLock}
+              className="text-gray-500 hover:text-gray-700 font-medium"
+            >
+              🔒 Lock
+            </button>
+          </div>
         </div>
 
         {/* Action Buttons */}

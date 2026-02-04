@@ -255,3 +255,36 @@ export interface NotificationPayload {
   message: string;
   type: 'success' | 'error' | 'warning' | 'info';
 }
+
+// ============================================================================
+// Export/Import Types
+// ============================================================================
+
+/**
+ * Exported vault file format
+ * The `data` field contains the vault JSON encrypted with the export password
+ */
+export interface ExportedVault {
+  quackVersion: string;          // App version that created this export
+  exportedAt: number;            // Timestamp (ms since epoch)
+  encrypted: true;               // Always true (plaintext exports not supported)
+  salt: string;                  // PBKDF2 salt (base64)
+  iv: string;                    // AES-GCM IV (base64)
+  data: string;                  // Encrypted VaultData JSON (base64)
+}
+
+/**
+ * Import item for the selection checklist
+ */
+export interface ImportItem {
+  id: string;
+  type: 'personal' | 'contact' | 'group';
+  name: string;
+  fingerprint: string;
+  shortFingerprint: string;
+  emoji?: string;                // For groups
+  hasConflict: boolean;          // True if fingerprint exists in current vault
+  conflictName?: string;         // Name of existing item with same fingerprint
+  selected: boolean;             // Whether user selected this item for import
+  data: QuackKey | QuackGroup;   // The actual item to import
+}
