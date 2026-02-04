@@ -184,17 +184,24 @@ src/content/
 
 ---
 
-## 6. Repo Public Preparation
+## 6. Repo Public Preparation ✅
 
 **Goal:** Ready for open source collaboration.
+
+**COMPLETED (2026-02-04):**
 
 ### Tasks
 - [x] Add LICENSE file (MIT) — Done in #4
 - [x] Update README Authors section — Done in #4
-- [ ] Review code for any secrets/sensitive data
-- [ ] Add CONTRIBUTING.md
-- [ ] Add CODE_OF_CONDUCT.md (optional)
-- [ ] Change repo visibility to public (GitHub Settings)
+- [x] Review code for any secrets/sensitive data — Clean ✅
+- [x] Add CONTRIBUTING.md
+
+### GitHub Settings (Neves needs to do)
+- [ ] Set `develop` as default branch (from #5)
+- [ ] Add branch protection for `main` (from #5)
+- [ ] Change repo visibility to public
+
+**Commit:** (pending)
 
 ---
 
