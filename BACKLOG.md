@@ -145,7 +145,7 @@ src/content/
 - `.github/workflows/test.yml` — CI workflow for Node 20.x/22.x
 - `LICENSE` — MIT license file
 
-**Commit:** (pending)
+**Commit:** `1256f83`
 
 ---
 
