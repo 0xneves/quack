@@ -313,6 +313,17 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
             <h1 className="text-2xl font-bold text-gray-900">Quack</h1>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                chrome.windows.getCurrent().then(win => {
+                  if (win.id) chrome.sidePanel.open({ windowId: win.id });
+                });
+              }}
+              className="text-gray-500 hover:text-gray-700 font-medium"
+              title="Open Side Panel"
+            >
+              📑
+            </button>
             {onSettings && (
               <button
                 onClick={onSettings}
