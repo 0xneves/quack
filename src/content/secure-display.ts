@@ -248,7 +248,7 @@ function showHoverCard(cipher: DetectedCipher, anchorRect: DOMRect): void {
   hoverCardEl.className = 'quack-selection-card';
   hoverCardEl.innerHTML = `
     <button class="quack-card-btn quack-card-primary" aria-label="Decrypt with Quack">Quack?</button>
-    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss">Dismiss</button>
+    <button class="quack-card-btn quack-card-secondary" aria-label="Copy encrypted text">Copy</button>
   `;
   
   hoverCardEl.addEventListener('mouseenter', () => {
@@ -265,22 +265,41 @@ function showHoverCard(cipher: DetectedCipher, anchorRect: DOMRect): void {
   document.body.appendChild(hoverCardEl);
   positionCard(anchorRect, hoverCardEl);
   
-  hoverCardEl.querySelector('.quack-card-primary')?.addEventListener('click', async () => {
+  const quackBtn = hoverCardEl.querySelector('.quack-card-primary');
+  const copyBtn = hoverCardEl.querySelector('.quack-card-secondary');
+  
+  quackBtn?.addEventListener('click', async () => {
     if (!activeHoverId) return;
     const c = detectedCiphers.get(activeHoverId);
     if (c) {
       c.dismissed = false;
+      // Disable button while decrypting
+      (quackBtn as HTMLButtonElement).disabled = true;
+      (quackBtn as HTMLButtonElement).textContent = '...';
       await decryptAndShow(c);
     }
     hideHoverCard();
   });
   
-  hoverCardEl.querySelector('.quack-card-secondary')?.addEventListener('click', () => {
-    if (activeHoverId) {
-      const c = detectedCiphers.get(activeHoverId);
-      if (c) c.dismissed = true;
+  copyBtn?.addEventListener('click', async () => {
+    if (!activeHoverId) return;
+    const c = detectedCiphers.get(activeHoverId);
+    if (c) {
+      try {
+        await navigator.clipboard.writeText(c.encrypted);
+        // Visual feedback
+        copyBtn.classList.add('copied');
+        (copyBtn as HTMLButtonElement).textContent = '✓';
+        setTimeout(() => {
+          if (copyBtn) {
+            copyBtn.classList.remove('copied');
+            (copyBtn as HTMLButtonElement).textContent = 'Copy';
+          }
+        }, 1000);
+      } catch (e) {
+        console.error('Copy failed:', e);
+      }
     }
-    hideHoverCard();
   });
 }
 
@@ -451,12 +470,28 @@ async function decryptAndShow(cipher: DetectedCipher): Promise<void> {
   }
   
   try {
+    console.log('🦆 Attempting to decrypt:', cipher.encrypted.substring(0, 50) + '...');
+    
     const response = await sendMessageSafe({
       type: 'DECRYPT_MESSAGE',
       payload: { encryptedMessage: cipher.encrypted },
     });
     
+    console.log('🦆 Decrypt response:', response);
+    
     if (response.blacklisted) {
+      showNotification('🚫 This message is from a blacklisted source');
+      return;
+    }
+    
+    if (response.error) {
+      if (response.error.includes('locked')) {
+        showNotification('🔒 Vault is locked. Click the Quack icon to unlock.');
+      } else if (response.error.includes('No key')) {
+        showNotification('🔑 No matching key found for this message');
+      } else {
+        showNotification(`❌ ${response.error}`);
+      }
       return;
     }
     
@@ -467,9 +502,12 @@ async function decryptAndShow(cipher: DetectedCipher): Promise<void> {
       };
       decryptionCount++;
       await showBubbleForCipher(cipher);
+    } else {
+      showNotification('❌ Could not decrypt message');
     }
   } catch (error) {
     console.error('🦆 Decryption error:', error);
+    showNotification('❌ Decryption failed. Is the extension active?');
   }
 }
 

@@ -209,11 +209,10 @@ export function injectSelectionStyles(): void {
       background: #ffffff;
       color: #111827;
       border-radius: 6px;
-      padding: 4px 6px;
+      padding: 4px;
       border: 1px solid #e5e7eb;
-      box-shadow: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
       z-index: 1000000;
-      min-width: 150px;
       display: flex;
       flex-direction: row;
       gap: 4px;
@@ -224,18 +223,17 @@ export function injectSelectionStyles(): void {
     .quack-card-btn {
       border: 1px solid transparent;
       border-radius: 6px;
-      padding: 6px 8px;
+      padding: 6px 12px;
       cursor: pointer;
-      font-weight: 700;
-      transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
-      text-align: left;
+      font-weight: 600;
+      transition: all 150ms ease;
+      text-align: center;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      justify-content: flex-start;
+      justify-content: center;
       line-height: 1.2;
-      white-space: normal;
-      box-shadow: none;
+      white-space: nowrap;
+      min-width: 70px;
     }
     .quack-card-btn:focus-visible {
       outline: 2px solid #ea711a;
@@ -244,21 +242,30 @@ export function injectSelectionStyles(): void {
     .quack-card-primary {
       background: #ea711a;
       color: #ffffff;
-      box-shadow: none;
     }
     .quack-card-primary:hover {
       background: #db5810;
-      box-shadow: none;
+      transform: scale(1.02);
+    }
+    .quack-card-primary:active {
+      transform: scale(0.98);
     }
     .quack-card-secondary {
-      background: #ffffff;
+      background: #f3f4f6;
       color: #374151;
       border-color: #e5e7eb;
     }
     .quack-card-secondary:hover {
-      background: #f9fafb;
-      border-color: #f4b777;
+      background: #e5e7eb;
       color: #111827;
+    }
+    .quack-card-secondary:active {
+      transform: scale(0.98);
+    }
+    .quack-card-secondary.copied {
+      background: #10b981;
+      color: #ffffff;
+      border-color: #10b981;
     }
   `;
   document.head.appendChild(style);
