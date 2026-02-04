@@ -67,13 +67,17 @@ src/content/
 
 ---
 
-## 3. Key Export/Import
+## 3. Key Export/Import ✅
 
 **Goal:** Allow full vault backup and restore.
 
-### Export Feature
+**COMPLETED (2026-02-04):**
 
-**Scope:** Full vault (personal keys + contacts + groups)
+### Export Feature
+- [x] Settings screen with Export button
+- [x] Password validation (alphanumeric, 20+ chars)
+- [x] AES-256-GCM encryption via PBKDF2
+- [x] JSON file download with timestamp filename
 
 **Format:**
 ```json
@@ -81,61 +85,33 @@ src/content/
   "quackVersion": "0.1.0",
   "exportedAt": 1707123456789,
   "encrypted": true,
+  "salt": "<base64>",
+  "iv": "<base64>",
   "data": "<AES-encrypted-vault-json>"
 }
 ```
 
-**Password Requirements:**
-- Alphanumeric characters only
-- Minimum 20 characters
-- No mix requirement (all letters or all numbers OK)
-- Separate from vault password
-
-**UI Flow:**
-1. User clicks "Export Vault" in settings
-2. Prompt for export password (20 char min, alphanumeric)
-3. Confirm password
-4. Generate encrypted JSON file
-5. Browser download dialog
-
 ### Import Feature
+- [x] Two scenarios implemented:
+  - **Fresh install:** Option on onboarding welcome screen → goes to dashboard after restore
+  - **Merge:** Settings → Import → adds to existing vault
+- [x] Password entry with backup metadata display
+- [x] Checklist with "Select All" toggle
+- [x] Conflict detection (same fingerprint shows warning)
+- [x] Selected items replace, unselected skip
 
-**Two scenarios:**
+### New Files
+- `src/storage/export.ts` — Export/import logic
+- `src/popup/screens/SettingsScreen.tsx` — Settings with Export/Import
+- `src/popup/screens/ImportScreen.tsx` — Import checklist UI
 
-**A) First Install (during onboarding wizard):**
-- Option to import existing backup
-- User provides export file + export password
-- Decrypts and shows checklist of items
-- User selects what to import (default: all)
-- User sets new vault password
-- Selected items become the new vault
+### Modified Files
+- `App.tsx` — Routes for settings/import screens
+- `DashboardScreen.tsx` — Settings button (⚙️) in header
+- `OnboardingScreen.tsx` — "Restore from Backup" option
+- `types/index.ts` — `ExportedVault` and `ImportItem` types
 
-**B) Merge (existing vault):**
-- Settings → Import
-- User provides export file + export password
-- Decrypts and shows checklist of items
-- **Conflict handling:** If fingerprint matches existing key:
-  - Show orange/red warning under the key name
-  - User can still select it
-  - Selected = replace existing
-  - Not selected = skip (keep existing)
-- Uses current vault password
-- Selected items added to vault
-
-**UI Components:**
-- Checklist with "Select All" toggle at top
-- Each item shows: name, type (personal/contact/group), fingerprint preview
-- Conflict items show warning badge
-- Import button at bottom
-
-### Technical Notes
-
-**Key sizes (ML-KEM-768):**
-- Public key: 1,184 bytes (~1.6KB base64)
-- Secret key: 2,400 bytes (~3.2KB base64)
-- Full keypair: ~4.8KB
-
-QR codes won't work (max ~3KB). File-based export is the way.
+**Commit:** `512631c`
 
 ---
 
