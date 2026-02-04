@@ -135,6 +135,13 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
       
     case 'OPEN_UNLOCK':
       return await openUnlockWindow();
+    
+    // Side panel sync messages - just acknowledge, actual handling is in side panel
+    case 'SIDEPANEL_SYNC':
+    case 'SIDEPANEL_UPDATE':
+    case 'SIDEPANEL_OPENED':
+    case 'SIDEPANEL_CLOSED':
+      return { success: true };
       
     default:
       throw new Error(`Unknown message type: ${message.type}`);

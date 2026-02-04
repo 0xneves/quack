@@ -208,7 +208,14 @@ export type MessageType =
   | 'OPEN_SECURE_COMPOSE'
   | 'OPEN_UNLOCK'
   | 'ENCRYPTED_MESSAGE_READY'
-  | 'SHOW_NOTIFICATION';
+  | 'SHOW_NOTIFICATION'
+  // Side Panel
+  | 'SIDEPANEL_SYNC'
+  | 'SIDEPANEL_UPDATE'
+  | 'SIDEPANEL_OPENED'
+  | 'SIDEPANEL_CLOSED'
+  | 'SIDEPANEL_DECRYPT'
+  | 'SIDEPANEL_SCROLL';
 
 export interface Message<T = unknown> {
   type: MessageType;

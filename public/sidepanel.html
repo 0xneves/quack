@@ -112,6 +112,18 @@
       background: #fef3e7;
     }
     
+    .action-btn.remove {
+      color: #9ca3af;
+      font-size: 16px;
+      line-height: 1;
+      padding: 2px 6px;
+    }
+    
+    .action-btn.remove:hover {
+      background: #fee2e2;
+      color: #ef4444;
+    }
+    
     .message-content {
       padding: 12px;
     }
@@ -195,10 +207,10 @@
   <div class="messages-list" id="messagesList">
     <div class="empty-state" id="emptyState">
       <div class="empty-icon">🔒</div>
-      <div class="empty-title">No encrypted messages</div>
+      <div class="empty-title">No encrypted messages yet</div>
       <div class="empty-desc">
-        When Quack detects encrypted messages on this page,<br>
-        they'll appear here securely decrypted.
+        Select text containing <strong>Quack://</strong> on the page,<br>
+        then click "Quack?" to decrypt it securely.
       </div>
     </div>
   </div>

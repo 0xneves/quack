@@ -171,39 +171,13 @@ export function addDecryptFailedIndicator(
 }
 
 /**
- * Inject selection/inline highlight styles into the page
+ * Inject selection card styles into the page
  */
 export function injectSelectionStyles(): void {
   if (document.querySelector('#quack-selection-styles')) return;
   const style = document.createElement('style');
   style.id = 'quack-selection-styles';
   style.textContent = `
-    @keyframes quack-underline-sweep {
-      from { transform: scaleX(0); opacity: 0.8; }
-      to { transform: scaleX(1); opacity: 1; }
-    }
-    .quack-underline {
-      position: fixed;
-      min-height: 3px;
-      background: #f4b777;
-      transform-origin: left center;
-      animation: quack-underline-sweep 180ms ease-out forwards;
-      z-index: 999999;
-      pointer-events: none;
-      opacity: 1;
-      transition: background 160ms ease, box-shadow 160ms ease;
-      box-shadow: 0 0 0 1px rgba(234, 113, 26, 0.25);
-    }
-    .quack-underline.hovered {
-      background: #ea711a;
-      box-shadow: 0 0 0 1px rgba(219, 88, 16, 0.35);
-    }
-    .quack-underline-hit {
-      position: fixed;
-      background: transparent;
-      z-index: 999999;
-      pointer-events: auto;
-    }
     .quack-selection-card {
       position: fixed;
       background: #ffffff;
@@ -219,6 +193,11 @@ export function injectSelectionStyles(): void {
       align-items: center;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 13px;
+      animation: quack-card-fade-in 150ms ease-out;
+    }
+    @keyframes quack-card-fade-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     .quack-card-btn {
       border: 1px solid transparent;

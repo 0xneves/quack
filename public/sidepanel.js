@@ -2,12 +2,18 @@
  * Quack Side Panel
  * 
  * SECURITY: All decrypted content displays here, never in page DOM.
- * Shows list of all encrypted messages on the current page with their decrypted plaintext.
+ * Shows list of all encrypted messages detected via text selection.
+ * 
+ * Messages are cleared on:
+ * - Tab switch
+ * - Page refresh/navigation
+ * - Panel close
  */
 
 // State
 let messages = [];
 let currentTabId = null;
+let currentTabUrl = null;
 
 // DOM Elements
 const messagesList = document.getElementById('messagesList');
@@ -22,16 +28,11 @@ async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab) {
     currentTabId = tab.id;
+    currentTabUrl = tab.url;
   }
   
   // Notify content script that panel is open
-  if (currentTabId) {
-    try {
-      await chrome.tabs.sendMessage(currentTabId, { type: 'SIDEPANEL_OPENED' });
-    } catch (e) {
-      // Content script may not be loaded yet
-    }
-  }
+  notifyPanelState(true);
   
   // Listen for messages from background/content script
   chrome.runtime.onMessage.addListener(handleMessage);
@@ -39,26 +40,74 @@ async function init() {
   // Handle tab changes
   chrome.tabs.onActivated?.addListener(async (activeInfo) => {
     currentTabId = activeInfo.tabId;
-    messages = [];
-    render();
-    try {
-      await chrome.tabs.sendMessage(currentTabId, { type: 'SIDEPANEL_OPENED' });
-    } catch (e) {
-      // Content script may not be loaded
+    // Clear messages when switching tabs
+    clearMessages();
+    
+    // Get new tab URL
+    const tab = await chrome.tabs.get(activeInfo.tabId);
+    currentTabUrl = tab.url;
+    
+    notifyPanelState(true);
+  });
+  
+  // Handle tab URL changes (navigation/refresh)
+  chrome.tabs.onUpdated?.addListener((tabId, changeInfo, tab) => {
+    if (tabId === currentTabId) {
+      // Clear on URL change or page load complete
+      if (changeInfo.url || changeInfo.status === 'complete') {
+        if (changeInfo.url && changeInfo.url !== currentTabUrl) {
+          console.log('🦆 Tab URL changed, clearing messages');
+          currentTabUrl = changeInfo.url;
+          clearMessages();
+        } else if (changeInfo.status === 'complete') {
+          console.log('🦆 Page loaded, clearing messages');
+          clearMessages();
+        }
+        notifyPanelState(true);
+      }
     }
   });
+  
+  render();
+}
+
+/**
+ * Notify content script about panel state
+ */
+async function notifyPanelState(open) {
+  if (!currentTabId) return;
+  try {
+    await chrome.tabs.sendMessage(currentTabId, { 
+      type: open ? 'SIDEPANEL_OPENED' : 'SIDEPANEL_CLOSED' 
+    });
+  } catch (e) {
+    // Content script may not be loaded yet
+    console.log('🦆 Could not notify content script:', e.message);
+  }
+}
+
+/**
+ * Clear all messages
+ */
+function clearMessages() {
+  messages = [];
+  render();
 }
 
 /**
  * Handle incoming messages
  */
 function handleMessage(message, sender) {
-  if (message.type === 'SIDEPANEL_SYNC' && sender.tab?.id === currentTabId) {
+  // Only accept messages from the current tab's content script
+  if (sender.tab?.id !== currentTabId) {
+    return;
+  }
+  
+  if (message.type === 'SIDEPANEL_SYNC') {
     messages = message.payload?.items || [];
-    // Sort by Y position to match page order
-    messages.sort((a, b) => a.yPosition - b.yPosition);
+    // Sort by detection order (no y-position without underlines)
     render();
-  } else if (message.type === 'SIDEPANEL_UPDATE' && sender.tab?.id === currentTabId) {
+  } else if (message.type === 'SIDEPANEL_UPDATE') {
     // Update single message
     const item = message.payload;
     const idx = messages.findIndex(m => m.id === item.id);
@@ -66,7 +115,6 @@ function handleMessage(message, sender) {
       messages[idx] = { ...messages[idx], ...item };
     } else {
       messages.push(item);
-      messages.sort((a, b) => a.yPosition - b.yPosition);
     }
     render();
   }
@@ -130,12 +178,13 @@ function createMessageCard(msg) {
     actions.appendChild(decryptBtn);
   }
   
-  const scrollBtn = document.createElement('button');
-  scrollBtn.className = 'action-btn';
-  scrollBtn.textContent = '📍';
-  scrollBtn.title = 'Scroll to message';
-  scrollBtn.onclick = () => scrollToMessage(msg.id);
-  actions.appendChild(scrollBtn);
+  // Remove button for each message
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'action-btn remove';
+  removeBtn.textContent = '×';
+  removeBtn.title = 'Remove from list';
+  removeBtn.onclick = () => removeMessage(msg.id);
+  actions.appendChild(removeBtn);
   
   header.appendChild(keyInfo);
   header.appendChild(actions);
@@ -162,7 +211,9 @@ function createMessageCard(msg) {
   const cipherPreview = document.createElement('div');
   cipherPreview.className = 'cipher-preview';
   cipherPreview.textContent = msg.ciphertextPreview || msg.encrypted?.substring(0, 50) + '...';
-  cipherPreview.title = msg.encrypted;
+  cipherPreview.title = 'Click to copy full ciphertext';
+  cipherPreview.style.cursor = 'pointer';
+  cipherPreview.onclick = () => copyText(msg.encrypted, cipherPreview);
   cipherSection.appendChild(cipherPreview);
   
   content.appendChild(cipherSection);
@@ -172,15 +223,25 @@ function createMessageCard(msg) {
 }
 
 /**
+ * Remove a message from the list
+ */
+function removeMessage(messageId) {
+  messages = messages.filter(m => m.id !== messageId);
+  render();
+}
+
+/**
  * Copy text to clipboard
  */
 async function copyText(text, btn) {
   try {
     await navigator.clipboard.writeText(text);
     const original = btn.textContent;
-    btn.textContent = 'Copied!';
+    btn.textContent = '✓';
+    btn.style.color = '#22c55e';
     setTimeout(() => {
       btn.textContent = original;
+      btn.style.color = '';
     }, 1500);
   } catch (e) {
     console.error('Copy failed:', e);
@@ -203,27 +264,10 @@ async function requestDecrypt(messageId) {
 }
 
 /**
- * Scroll to message in page
- */
-async function scrollToMessage(messageId) {
-  if (!currentTabId) return;
-  try {
-    await chrome.tabs.sendMessage(currentTabId, {
-      type: 'SIDEPANEL_SCROLL',
-      payload: { id: messageId },
-    });
-  } catch (e) {
-    console.error('Scroll request failed:', e);
-  }
-}
-
-/**
  * Notify content script when panel is closing
  */
 window.addEventListener('beforeunload', () => {
-  if (currentTabId) {
-    chrome.tabs.sendMessage(currentTabId, { type: 'SIDEPANEL_CLOSED' }).catch(() => {});
-  }
+  notifyPanelState(false);
 });
 
 // Initialize
