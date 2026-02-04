@@ -201,7 +201,7 @@ src/content/
 - [ ] Add branch protection for `main` (from #5)
 - [ ] Change repo visibility to public
 
-**Commit:** (pending)
+**Commit:** `ed1daf5`
 
 ---
 
