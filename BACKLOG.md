@@ -111,7 +111,9 @@ src/content/
 - `OnboardingScreen.tsx` — "Restore from Backup" option
 - `types/index.ts` — `ExportedVault` and `ImportItem` types
 
-**Commit:** `512631c`
+**Commits:** 
+- `512631c` — Feature implementation
+- `df48023` — Tests (27 new tests, 54 total)
 
 ---
 
