@@ -17,8 +17,6 @@ People want secure communications, but moving friends to new platforms is nearly
 - **Quantum-resistant** — Post-quantum cryptography (ML-KEM-768) + AES-256-GCM
 - **Wallet-grade security** — MetaMask-style vault with master password protection
 
----
-
 ## Installation
 
 ### From Source (Development)
@@ -51,8 +49,6 @@ People want secure communications, but moving friends to new platforms is nearly
 - Edge
 - Brave
 - Any Chromium-based browser
-
----
 
 ## Quick Start
 
@@ -97,8 +93,6 @@ Create groups to share keys with multiple people:
 - Fresh install: "Restore from Backup" on first launch
 - Existing vault: Settings → Import to merge keys
 
----
-
 ## Features
 
 ### Secure Compose Mode
@@ -120,8 +114,6 @@ Export/import your entire vault with AES-256 encryption.
 
 ### Performance Optimized
 Smart viewport scanning — only processes visible content. Limits auto-decryption to prevent spam attacks.
-
----
 
 ## Security
 
@@ -146,8 +138,6 @@ Smart viewport scanning — only processes visible content. Limits auto-decrypti
 - No forward secrecy (static keys)
 - No sender authentication (no signatures yet)
 - Metadata visible to platforms (message length, timing)
-
----
 
 ## Development
 
@@ -203,8 +193,6 @@ src/
 ```bash
 npm test
 ```
-
----
 
 ## Authors
 
