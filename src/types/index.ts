@@ -203,6 +203,7 @@ export type MessageType =
   | 'VAULT_STATUS'
   | 'CACHE_VAULT'
   | 'GET_VAULT_DATA'
+  | 'VAULT_UPDATED'
   // UI
   | 'OPEN_SECURE_COMPOSE'
   | 'OPEN_UNLOCK'

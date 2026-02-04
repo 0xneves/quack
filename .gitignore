@@ -32,3 +32,4 @@ build/
 .env.local
 .env.*.local
 
+coverage/

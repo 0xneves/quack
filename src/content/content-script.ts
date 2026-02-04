@@ -760,6 +760,7 @@ function replaceWithDecrypted(
       wrapper.style.position = 'relative';
       
       const indicator = document.createElement('span');
+      indicator.className = 'quack-decrypted-indicator';
       indicator.textContent = ' 🔓';
       indicator.title = `Decrypted by Quack (Key: ${keyName})`;
       indicator.style.cssText = `
@@ -1438,5 +1439,120 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
+}
+
+/**
+ * Listen for vault updates from service worker
+ * When keys/groups change, rescan the page for newly decryptable messages
+ */
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === 'VAULT_UPDATED') {
+    console.log('🦆 Vault updated, rescanning page for decryptable messages...');
+    rescanPage();
+  }
+});
+
+/**
+ * Clear processed elements and rescan entire page
+ * Called when vault changes (new keys/groups added)
+ */
+function rescanPage() {
+  // Clear the processed elements tracking
+  // Note: WeakSet doesn't have a clear() method, but we can work around by
+  // creating a new scan that processes elements again
+  decryptedCount = 0;
+  warningShown = false;
+  
+  // Re-run DOM scanning to pick up previously unprocessable elements
+  // The processedElements WeakSet will still have old entries, but
+  // we'll force reprocessing by temporarily bypassing the check
+  forceRescanDOM();
+}
+
+/**
+ * Force rescan of all text nodes containing Quack:// messages
+ */
+function forceRescanDOM() {
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const element = entry.target as HTMLElement;
+          // Force reprocess even if previously seen
+          forceProcessElement(element);
+          observer.unobserve(element);
+        }
+      });
+    },
+    { threshold: 0.1 }
+  );
+  
+  // Find all elements with Quack:// text
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_TEXT,
+    null
+  );
+  
+  const elementsToRescan = new Set<HTMLElement>();
+  let node;
+  while ((node = walker.nextNode())) {
+    const text = node.textContent || '';
+    if (text.includes(QUACK_MSG_PREFIX)) {
+      const parent = node.parentElement;
+      if (parent && !isWithinEditable(parent)) {
+        elementsToRescan.add(parent);
+      }
+    }
+  }
+  
+  elementsToRescan.forEach(el => observer.observe(el));
+  console.log(`🦆 Rescanning ${elementsToRescan.size} elements with encrypted messages`);
+}
+
+/**
+ * Force process an element even if it was previously processed
+ */
+async function forceProcessElement(element: HTMLElement) {
+  // Skip if within editable
+  if (isWithinEditable(element)) return;
+  
+  // Check decrypt limit
+  if (decryptedCount >= MAX_AUTO_DECRYPTS) {
+    if (!element.querySelector('.quack-manual-decrypt')) {
+      addManualDecryptButton(element);
+    }
+    if (!warningShown) {
+      showExcessiveQuacksWarning();
+      warningShown = true;
+    }
+    return;
+  }
+  
+  // Extract encrypted text
+  const text = element.textContent || '';
+  const match = text.match(new RegExp(QUACK_MSG_REGEX.source));
+  if (!match) return;
+  
+  const encrypted = match[0];
+  
+  // Check if already decrypted (has the 🔓 indicator)
+  if (element.querySelector('.quack-decrypted-indicator')) return;
+  
+  try {
+    const response = await sendMessageSafe({
+      type: 'DECRYPT_MESSAGE',
+      payload: { encryptedMessage: encrypted },
+    });
+    
+    if (response.plaintext) {
+      // Successfully decrypted! Replace content
+      replaceWithDecrypted(element, encrypted, response.plaintext, response.keyName);
+      decryptedCount++;
+      console.log(`🔓 Decrypted message from ${response.keyName || 'unknown'}`);
+    }
+  } catch (error) {
+    console.error('Rescan decrypt error:', error);
+  }
 }
 

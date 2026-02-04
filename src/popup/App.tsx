@@ -7,8 +7,10 @@ import LoginScreen from './screens/LoginScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import SecureComposeScreen from './screens/SecureComposeScreen';
 import ManualDecryptScreen from './screens/ManualDecryptScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
+import ConnectFlowScreen from './screens/ConnectFlowScreen';
 
-type Screen = 'loading' | 'setup' | 'login' | 'dashboard' | 'compose' | 'decrypt';
+type Screen = 'loading' | 'setup' | 'login' | 'dashboard' | 'compose' | 'decrypt' | 'onboarding' | 'connect';
 
 function App() {
   const [screen, setScreen] = useState<Screen>('loading');
@@ -54,7 +56,8 @@ function App() {
       setVaultData(emptyVault);
       await markVaultUnlocked();
       await cacheVaultInBackground(emptyVault, password);
-      setScreen('dashboard');
+      // New vault = needs onboarding
+      setScreen('onboarding');
     } catch (error) {
       console.error('Setup failed:', error);
       alert('Failed to create vault. Please try again.');
@@ -109,7 +112,15 @@ function App() {
     setScreen('decrypt');
   }
 
+  function handleConnect() {
+    setScreen('connect');
+  }
+
   function handleBackToDashboard() {
+    setScreen('dashboard');
+  }
+
+  function handleOnboardingComplete() {
     setScreen('dashboard');
   }
 
@@ -159,6 +170,26 @@ function App() {
     );
   }
 
+  if (screen === 'onboarding' && vaultData) {
+    return (
+      <OnboardingScreen
+        vaultData={vaultData}
+        onVaultUpdate={handleVaultUpdate}
+        onComplete={handleOnboardingComplete}
+      />
+    );
+  }
+
+  if (screen === 'connect' && vaultData) {
+    return (
+      <ConnectFlowScreen
+        vaultData={vaultData}
+        onVaultUpdate={handleVaultUpdate}
+        onBack={handleBackToDashboard}
+      />
+    );
+  }
+
   if (screen === 'dashboard' && vaultData) {
     return (
       <DashboardScreen
@@ -167,6 +198,7 @@ function App() {
         onLock={handleLock}
         onCompose={handleCompose}
         onDecrypt={handleDecrypt}
+        onConnect={handleConnect}
       />
     );
   }

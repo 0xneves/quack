@@ -27,6 +27,7 @@ interface DashboardScreenProps {
   onLock: () => void;
   onCompose: () => void;
   onDecrypt: () => void;
+  onConnect?: () => void;
 }
 
 type TabType = 'identity' | 'contacts' | 'groups';
@@ -35,7 +36,7 @@ type ModalType = 'newIdentity' | 'addContact' | 'keyDetails' | 'newGroup' | 'gro
 // Common emoji options for groups
 const GROUP_EMOJIS = ['🦆', '🔐', '👥', '🏠', '💼', '🎮', '🎵', '📚', '🌟', '💬', '🔒', '🛡️'];
 
-function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecrypt }: DashboardScreenProps) {
+function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecrypt, onConnect }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<TabType>('groups');
   const [modal, setModal] = useState<ModalType>(null);
   const [newKeyName, setNewKeyName] = useState('');
@@ -319,7 +320,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-3">
+        <div className="flex gap-3 mb-2">
           <button
             onClick={onCompose}
             className="flex-1 bg-quack-500 hover:bg-quack-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200"
@@ -333,6 +334,14 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
             🔓 Decrypt
           </button>
         </div>
+        {onConnect && (
+          <button
+            onClick={onConnect}
+            className="w-full bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2 px-4 rounded-lg transition duration-200"
+          >
+            🤝 Connect with Someone
+          </button>
+        )}
       </div>
 
       {/* Tabs */}

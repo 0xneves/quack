@@ -250,6 +250,9 @@ async function handleCreateGroup(payload: CreateGroupPayload) {
   cachedVaultData = await addGroupToVault(group, cachedVaultData);
   await saveVault(cachedVaultData, cachedMasterPassword);
   
+  // Broadcast to all tabs so they can decrypt with new group key
+  await broadcastVaultUpdated();
+  
   return {
     success: true,
     group: {
@@ -331,6 +334,9 @@ async function handleJoinGroup(payload: JoinGroupPayload) {
   const group = await createGroupFromInvitation(result.payload);
   cachedVaultData = await addGroupToVault(group, cachedVaultData);
   await saveVault(cachedVaultData, cachedMasterPassword);
+  
+  // Broadcast to all tabs so they can decrypt with new group key
+  await broadcastVaultUpdated();
   
   return {
     success: true,
@@ -472,6 +478,9 @@ async function handleAddContact(payload: ImportKeyPayload) {
   cachedVaultData = await addKeyToVault(contact, cachedVaultData);
   await saveVault(cachedVaultData, cachedMasterPassword);
   
+  // Broadcast vault update (contacts added means new invite targets available)
+  await broadcastVaultUpdated();
+  
   return { 
     success: true, 
     contact: {
@@ -552,6 +561,25 @@ export async function cacheVault(masterPassword: string): Promise<boolean> {
 export function clearVaultCache(): void {
   cachedVaultData = null;
   cachedMasterPassword = null;
+}
+
+/**
+ * Broadcast vault update to all tabs so they can rescan for decryptable messages
+ */
+async function broadcastVaultUpdated(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (tab.id) {
+        chrome.tabs.sendMessage(tab.id, { type: 'VAULT_UPDATED' }).catch(() => {
+          // Tab might not have content script injected, ignore
+        });
+      }
+    }
+    console.log('📢 Broadcast VAULT_UPDATED to', tabs.length, 'tabs');
+  } catch (err) {
+    console.error('Failed to broadcast vault update:', err);
+  }
 }
 
 export function getCachedVaultData(): VaultData | null {
