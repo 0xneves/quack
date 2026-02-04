@@ -16,7 +16,7 @@
 
 ---
 
-## 1. Storage Security Audit
+## 1. Storage Security Audit ✅
 
 **Goal:** Ensure key storage is wallet-grade secure.
 
@@ -25,15 +25,18 @@
 - Stored in `chrome.storage.local`
 - Password never stored
 
-**TODO:**
-- [ ] Verify unlocked vault state uses `chrome.storage.session` (memory only, not disk)
-- [ ] Implement auto-lock after inactivity timeout
-- [ ] Ensure decrypted keys cleared from memory after operations
-- [ ] Review against MetaMask/Phantom storage patterns
+**COMPLETED (2026-02-04):**
+- [x] Session state moved to `chrome.storage.session` (memory only, never disk)
+- [x] Auto-lock after inactivity timeout (existed, verified working)
+- [x] Decrypted keys cleared on lock/browser close (service worker restart clears memory)
+- [x] Matches MetaMask/Phantom wallet-grade patterns
 
-**Files to check:**
-- `src/storage/vault.ts`
-- `src/background/service-worker.ts`
+**Changes:**
+- `src/storage/settings.ts` — `getSession()`/`saveSession()` now use `chrome.storage.session`
+- Added `migrateSessionToMemoryOnly()` to clean old local storage data
+- `src/background/service-worker.ts` — calls migration on startup
+
+**Commit:** `4942cfd`
 
 ---
 
