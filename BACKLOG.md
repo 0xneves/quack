@@ -40,30 +40,30 @@
 
 ---
 
-## 2. Content Script Refactor
+## 2. Content Script Refactor ✅
 
 **Goal:** Break monolithic `content-script.ts` (1558 lines) into maintainable modules.
 
-**Current State:**
-- Single file handles: DOM scanning, input detection, overlays, inline highlights, encryption triggers, decryption
+**COMPLETED (2026-02-04):**
 
-**Proposed Structure:**
+Split into 7 focused modules:
 ```
 src/content/
-├── content-script.ts      # Entry point, orchestration
-├── dom-scanner.ts         # MutationObserver, IntersectionObserver, scanElement
-├── input-detector.ts      # Quack:// trigger detection, editable tracking
-├── overlay-manager.ts     # Encrypt/decrypt overlay iframes, positioning
-├── inline-highlight.ts    # Underlines, hover cards, cipher highlights
-├── notifications.ts       # Toast notifications, warnings
-└── utils.ts               # Content-script specific helpers
+├── content-script.ts      # 58 lines - Entry point, orchestration
+├── dom-scanner.ts         # 348 lines - MutationObserver, IntersectionObserver, element processing
+├── inline-highlight.ts    # 344 lines - Underlines, hover cards, cipher highlights
+├── input-detector.ts      # 222 lines - Editable tracking, encrypt triggers
+├── notifications.ts       # 265 lines - Toasts, warnings, prompts
+├── overlay-manager.ts     # 405 lines - Encrypt/decrypt overlay iframes
+└── utils.ts               # 137 lines - Shared helpers
 ```
 
 **Approach:**
 - Split source files for maintainability
-- Bundle into single output with Vite (simpler runtime)
+- Vite bundles into single `content-script.js` output (23KB)
+- Clean module boundaries with explicit exports
 
-**Estimate:** 2-3 hours
+**Commit:** `c6d9c04`
 
 ---
 
