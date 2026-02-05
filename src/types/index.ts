@@ -77,8 +77,35 @@ export interface VaultData {
   groups: QuackGroup[];          // Shared group keys
 }
 
+/**
+ * v3 Separated Storage Model:
+ * 
+ * vault_meta - Rarely changes (only on password create/change)
+ *   Contains salt and password verification hash
+ *   Survives data corruption!
+ * 
+ * vault_data - Changes every save
+ *   Contains IV and encrypted vault data
+ *   Can be recovered from backup if corrupted
+ */
+
+export interface VaultMeta {
+  version: number;               // 3 = separated storage model
+  salt: string;                  // PBKDF2 salt (base64) - NEVER changes after creation
+  passwordHash: string;          // For quick password verification (base64)
+  createdAt: number;             // Timestamp when vault was created
+  passwordChangedAt?: number;    // Timestamp when password was last changed
+}
+
+export interface VaultDataEncrypted {
+  iv: string;                    // AES-GCM IV (base64) - new each save
+  data: string;                  // Encrypted VaultData JSON (base64)
+  savedAt: number;               // Timestamp of this save
+}
+
+// Legacy v2 format (kept for migration)
 export interface EncryptedVault {
-  version: number;               // 2 = current Kyber + Groups format
+  version: number;               // 2 = legacy Kyber + Groups format
   salt: string;                  // PBKDF2 salt (base64)
   iv: string;                    // AES-GCM IV (base64)
   data: string;                  // Encrypted JSON containing VaultData (base64)

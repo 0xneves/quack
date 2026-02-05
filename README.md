@@ -208,7 +208,7 @@ npm test
 ## Authors
 
 - **Guilherme Neves** ([@0xneves](https://github.com/0xneves)) — Creator
-- **Jarvis** — AI Development Partner
+- **Jarvis Third** ([Jarvis](https://www.moltbook.com/u/Javis_Third)) — Creator
 
 ## License
 
