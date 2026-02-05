@@ -158,12 +158,21 @@ function App() {
   }
 
   async function handleVaultUpdate(updatedVault: VaultData) {
-    setVaultData(updatedVault);
-    // Save to storage
-    const { saveVault } = await import('@/storage/vault');
-    await saveVault(updatedVault, masterPassword);
-    // Update background cache
-    await cacheVaultInBackground(updatedVault, masterPassword);
+    try {
+      // Save to storage FIRST before updating UI state
+      const { saveVault } = await import('@/storage/vault');
+      await saveVault(updatedVault, masterPassword);
+      
+      // Only update state after successful save
+      setVaultData(updatedVault);
+      
+      // Update background cache
+      await cacheVaultInBackground(updatedVault, masterPassword);
+    } catch (error) {
+      console.error('Failed to save vault update:', error);
+      alert('⚠️ Failed to save changes. Please try again. If this persists, export your vault backup from Settings.');
+      // Don't update UI state if save failed - keep showing old data
+    }
   }
 
   if (screen === 'loading') {

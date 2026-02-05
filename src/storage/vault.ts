@@ -36,6 +36,21 @@ export { isPersonalKey, isContactKey } from '@/types';
 
 const CURRENT_VAULT_VERSION = 2;
 
+/**
+ * Check available storage space
+ * Returns approximate bytes available (chrome.storage.local has ~5MB-10MB limit)
+ */
+export async function checkStorageQuota(): Promise<{ bytesUsed: number; quotaBytes: number; percentUsed: number }> {
+  const bytesUsed = await chrome.storage.local.getBytesInUse();
+  // Chrome local storage quota is typically 5MB for extensions, 10MB with unlimitedStorage permission
+  const quotaBytes = 5 * 1024 * 1024; // 5MB default
+  const percentUsed = Math.round((bytesUsed / quotaBytes) * 100);
+  
+  console.log(`📊 Storage: ${bytesUsed} bytes used (${percentUsed}% of ~${quotaBytes} bytes)`);
+  
+  return { bytesUsed, quotaBytes, percentUsed };
+}
+
 // ============================================================================
 // Vault Lifecycle
 // ============================================================================
@@ -59,7 +74,34 @@ export async function createVault(masterPassword: string): Promise<void> {
     data: encrypted,
   };
   
-  await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: encryptedVault });
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: encryptedVault });
+    
+    // Verify the write succeeded
+    const verifyResult = await chrome.storage.local.get(STORAGE_KEYS.VAULT);
+    if (!verifyResult[STORAGE_KEYS.VAULT]) {
+      throw new Error('Vault creation failed: verification failed');
+    }
+    
+    // Verify we can decrypt
+    const testDecrypt = await decryptVault(
+      encryptedVault.data,
+      encryptedVault.iv,
+      encryptedVault.salt,
+      masterPassword
+    );
+    
+    if (!testDecrypt) {
+      throw new Error('Vault creation failed: decryption verification failed');
+    }
+    
+    console.log('✅ Vault created successfully');
+  } catch (error) {
+    console.error('❌ Vault creation failed:', error);
+    // Clean up any partial write
+    await chrome.storage.local.remove(STORAGE_KEYS.VAULT);
+    throw error;
+  }
 }
 
 /**
@@ -117,22 +159,97 @@ async function migrateVaultV1ToV2(_oldVault: VaultData): Promise<VaultData> {
 
 /**
  * Save vault data (re-encrypt with password)
+ * 
+ * SAFETY: Uses write-ahead pattern with verification:
+ * 1. Backup current vault before overwriting
+ * 2. Write new vault
+ * 3. Verify the write succeeded by re-reading
+ * 4. If verification fails, attempt to restore backup
  */
 export async function saveVault(
   vaultData: VaultData,
   masterPassword: string
 ): Promise<void> {
-  const vaultJson = JSON.stringify(vaultData);
-  const { salt, iv, encrypted } = await encryptVault(vaultJson, masterPassword);
+  const BACKUP_KEY = 'vault_backup';
   
-  const encryptedVault: EncryptedVault = {
-    version: CURRENT_VAULT_VERSION,
-    salt,
-    iv,
-    data: encrypted,
-  };
-  
-  await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: encryptedVault });
+  try {
+    // Step 1: Backup current vault before overwriting
+    const currentResult = await chrome.storage.local.get(STORAGE_KEYS.VAULT);
+    const currentVault = currentResult[STORAGE_KEYS.VAULT];
+    if (currentVault) {
+      await chrome.storage.local.set({ [BACKUP_KEY]: currentVault });
+    }
+    
+    // Step 2: Encrypt and save new vault
+    const vaultJson = JSON.stringify(vaultData);
+    const { salt, iv, encrypted } = await encryptVault(vaultJson, masterPassword);
+    
+    const encryptedVault: EncryptedVault = {
+      version: CURRENT_VAULT_VERSION,
+      salt,
+      iv,
+      data: encrypted,
+    };
+    
+    await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: encryptedVault });
+    
+    // Step 3: Verify the write succeeded by attempting to decrypt
+    const verifyResult = await chrome.storage.local.get(STORAGE_KEYS.VAULT);
+    const savedVault = verifyResult[STORAGE_KEYS.VAULT] as EncryptedVault | undefined;
+    
+    if (!savedVault) {
+      throw new Error('Vault save verification failed: vault not found after save');
+    }
+    
+    // Verify we can decrypt with the password
+    const testDecrypt = await decryptVault(
+      savedVault.data,
+      savedVault.iv,
+      savedVault.salt,
+      masterPassword
+    );
+    
+    if (!testDecrypt) {
+      throw new Error('Vault save verification failed: decryption test failed');
+    }
+    
+    // Parse and verify data integrity
+    const parsedVault = JSON.parse(testDecrypt) as VaultData;
+    if (!parsedVault.keys || !parsedVault.groups) {
+      throw new Error('Vault save verification failed: data structure invalid');
+    }
+    
+    // Verify counts match
+    if (parsedVault.keys.length !== vaultData.keys.length || 
+        parsedVault.groups.length !== vaultData.groups.length) {
+      throw new Error('Vault save verification failed: data count mismatch');
+    }
+    
+    // Step 4: Clear backup on success
+    await chrome.storage.local.remove(BACKUP_KEY);
+    
+    console.log('✅ Vault saved successfully:', {
+      keys: vaultData.keys.length,
+      groups: vaultData.groups.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Vault save failed:', error);
+    
+    // Attempt to restore backup
+    try {
+      const backupResult = await chrome.storage.local.get(BACKUP_KEY);
+      const backup = backupResult[BACKUP_KEY];
+      if (backup) {
+        await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: backup });
+        console.log('🔄 Restored vault from backup after save failure');
+      }
+    } catch (restoreError) {
+      console.error('❌ Failed to restore backup:', restoreError);
+    }
+    
+    throw error; // Re-throw so caller knows save failed
+  }
 }
 
 // ============================================================================
