@@ -34,7 +34,14 @@ export const NOTIFICATION_DURATION = 3000; // ms
 
 // Storage Keys
 export const STORAGE_KEYS = {
+  // New separated storage (v3)
+  VAULT_META: 'vault_meta',     // Salt + password hash (rarely changes)
+  VAULT_DATA: 'vault_data',     // IV + encrypted data (changes every save)
+  VAULT_BACKUP: 'vault_backup', // Backup of vault_data before each save
+  
+  // Legacy (v2) - kept for migration
   VAULT: 'vault',
+  
   SETTINGS: 'settings',
   SESSION: 'session',
 } as const;
