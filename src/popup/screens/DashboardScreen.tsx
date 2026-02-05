@@ -143,6 +143,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
   // ============================================================================
 
   async function handleCreateGroup() {
+    const createId = Math.random().toString(36).substring(7);
+    console.log(`🆕 [handleCreateGroup:${createId}] START - name: "${newGroupName}"`);
+    
     if (!newGroupName.trim()) {
       alert('Please enter a group name');
       return;
@@ -151,20 +154,33 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
     setIsGenerating(true);
     
     try {
+      console.log(`🆕 [handleCreateGroup:${createId}] Current vaultData - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+      console.log(`🆕 [handleCreateGroup:${createId}] Existing group IDs:`, vaultData.groups.map(g => ({ id: g.id, name: g.name })));
+      
       const primaryKey = getPrimaryPersonalKey(vaultData);
+      console.log(`🆕 [handleCreateGroup:${createId}] Creating group with createGroup()...`);
       const group = await createGroup(
         newGroupName,
         newGroupEmoji,
         undefined,
         primaryKey?.fingerprint
       );
+      console.log(`🆕 [handleCreateGroup:${createId}] Created group - id: ${group.id}, name: ${group.name}`);
+      
+      console.log(`🆕 [handleCreateGroup:${createId}] Adding to vault with addGroupToVault()...`);
       const updatedVault = await addGroupToVault(group, vaultData);
+      console.log(`🆕 [handleCreateGroup:${createId}] Updated vault - keys: ${updatedVault.keys.length}, groups: ${updatedVault.groups.length}`);
+      console.log(`🆕 [handleCreateGroup:${createId}] Updated group IDs:`, updatedVault.groups.map(g => ({ id: g.id, name: g.name })));
+      
+      console.log(`🆕 [handleCreateGroup:${createId}] Calling onVaultUpdate()...`);
       onVaultUpdate(updatedVault);
+      
       setNewGroupName('');
       setNewGroupEmoji('🦆');
       setModal(null);
+      console.log(`🆕 [handleCreateGroup:${createId}] SUCCESS`);
     } catch (error: any) {
-      console.error('Failed to create group:', error);
+      console.error(`🆕 [handleCreateGroup:${createId}] FAILED:`, error);
       alert(error.message || 'Failed to create group. Please try again.');
     } finally {
       setIsGenerating(false);

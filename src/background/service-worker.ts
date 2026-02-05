@@ -530,9 +530,17 @@ async function handleImportKey(payload: ImportKeyPayload) {
  * Return cached vault data for popup without re-login
  */
 function handleGetVaultData() {
+  const getId = Math.random().toString(36).substring(7);
+  console.log(`📦 [handleGetVaultData:${getId}] START`);
+  
   if (!cachedVaultData) {
+    console.log(`📦 [handleGetVaultData:${getId}] No cached data, returning null`);
     return { vault: null };
   }
+  
+  console.log(`📦 [handleGetVaultData:${getId}] Returning cached vault - keys: ${cachedVaultData.keys.length}, groups: ${cachedVaultData.groups.length}`);
+  console.log(`📦 [handleGetVaultData:${getId}] Cached group IDs:`, cachedVaultData.groups.map(g => ({ id: g.id, name: g.name })));
+  
   return { vault: cachedVaultData };
 }
 
@@ -540,12 +548,18 @@ function handleGetVaultData() {
  * Cache vault data in memory (from popup)
  */
 async function handleCacheVault(payload: { masterPassword: string }) {
+  const cacheId = Math.random().toString(36).substring(7);
+  console.log(`🗄️ [handleCacheVault:${cacheId}] START - received CACHE_VAULT message`);
+  
   const { masterPassword } = payload;
   if (!masterPassword) {
+    console.log(`🗄️ [handleCacheVault:${cacheId}] ERROR: Missing master password`);
     return { cached: false, error: 'Missing master password' };
   }
 
   const ok = await cacheVault(masterPassword);
+  console.log(`🗄️ [handleCacheVault:${cacheId}] cacheVault returned: ${ok}`);
+  console.log(`🗄️ [handleCacheVault:${cacheId}] cachedVaultData now has - keys: ${cachedVaultData?.keys?.length}, groups: ${cachedVaultData?.groups?.length}`);
   return { cached: ok };
 }
 
@@ -553,17 +567,27 @@ async function handleCacheVault(payload: { masterPassword: string }) {
  * Export functions for popup to cache vault data
  */
 export async function cacheVault(masterPassword: string): Promise<boolean> {
+  const cacheId = Math.random().toString(36).substring(7);
+  console.log(`🗄️ [cacheVault:${cacheId}] START - about to call unlockVault to re-read from storage...`);
+  console.log(`🗄️ [cacheVault:${cacheId}] BEFORE: cachedVaultData has - keys: ${cachedVaultData?.keys?.length}, groups: ${cachedVaultData?.groups?.length}`);
+  
   try {
     const vaultData = await unlockVault(masterPassword);
     if (!vaultData) {
+      console.log(`🗄️ [cacheVault:${cacheId}] unlockVault returned null`);
       return false;
     }
     
+    console.log(`🗄️ [cacheVault:${cacheId}] unlockVault returned - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+    console.log(`🗄️ [cacheVault:${cacheId}] Group IDs from storage:`, vaultData.groups.map(g => ({ id: g.id, name: g.name })));
+    
     cachedVaultData = vaultData;
     cachedMasterPassword = masterPassword;
+    
+    console.log(`🗄️ [cacheVault:${cacheId}] AFTER: cachedVaultData now has - keys: ${cachedVaultData.keys.length}, groups: ${cachedVaultData.groups.length}`);
     return true;
   } catch (error) {
-    console.error('Failed to cache vault:', error);
+    console.error(`🗄️ [cacheVault:${cacheId}] FAILED:`, error);
     return false;
   }
 }

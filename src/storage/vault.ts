@@ -59,13 +59,19 @@ export async function checkStorageQuota(): Promise<{ bytesUsed: number; quotaByt
  * Initialize a new vault with master password
  */
 export async function createVault(masterPassword: string): Promise<void> {
+  const createId = Math.random().toString(36).substring(7);
+  console.log(`🆕 [createVault:${createId}] START`);
+  
   const emptyVault: VaultData = {
     keys: [],
     groups: [],
   };
   
   const vaultJson = JSON.stringify(emptyVault);
+  console.log(`🆕 [createVault:${createId}] Empty vault JSON: ${vaultJson}`);
+  
   const { salt, iv, encrypted } = await encryptVault(vaultJson, masterPassword);
+  console.log(`🆕 [createVault:${createId}] Encrypted - salt length: ${salt.length}, iv length: ${iv.length}, data length: ${encrypted.length}`);
   
   const encryptedVault: EncryptedVault = {
     version: CURRENT_VAULT_VERSION,
@@ -75,6 +81,7 @@ export async function createVault(masterPassword: string): Promise<void> {
   };
   
   try {
+    console.log(`🆕 [createVault:${createId}] Writing to storage...`);
     await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: encryptedVault });
     
     // Verify the write succeeded
@@ -82,6 +89,7 @@ export async function createVault(masterPassword: string): Promise<void> {
     if (!verifyResult[STORAGE_KEYS.VAULT]) {
       throw new Error('Vault creation failed: verification failed');
     }
+    console.log(`🆕 [createVault:${createId}] Vault written and verified in storage`);
     
     // Verify we can decrypt
     const testDecrypt = await decryptVault(
@@ -95,9 +103,9 @@ export async function createVault(masterPassword: string): Promise<void> {
       throw new Error('Vault creation failed: decryption verification failed');
     }
     
-    console.log('✅ Vault created successfully');
+    console.log(`🆕 [createVault:${createId}] SUCCESS - Vault created and verified`);
   } catch (error) {
-    console.error('❌ Vault creation failed:', error);
+    console.error(`🆕 [createVault:${createId}] FAILED:`, error);
     // Clean up any partial write
     await chrome.storage.local.remove(STORAGE_KEYS.VAULT);
     throw error;
@@ -116,12 +124,18 @@ export async function vaultExists(): Promise<boolean> {
  * Unlock vault with master password
  */
 export async function unlockVault(masterPassword: string): Promise<VaultData | null> {
+  const unlockId = Math.random().toString(36).substring(7);
+  console.log(`🔓 [unlockVault:${unlockId}] START - Reading from storage...`);
+  
   const result = await chrome.storage.local.get(STORAGE_KEYS.VAULT);
   const vault = result[STORAGE_KEYS.VAULT] as EncryptedVault | undefined;
   
   if (!vault) {
+    console.log(`🔓 [unlockVault:${unlockId}] No vault found in storage`);
     throw new Error('Vault does not exist');
   }
+  
+  console.log(`🔓 [unlockVault:${unlockId}] Vault found, version=${vault.version}, data length=${vault.data?.length}`);
   
   const decrypted = await decryptVault(
     vault.data,
@@ -131,20 +145,28 @@ export async function unlockVault(masterPassword: string): Promise<VaultData | n
   );
   
   if (!decrypted) {
+    console.log(`🔓 [unlockVault:${unlockId}] Decryption failed (wrong password?)`);
     return null; // Wrong password
   }
+  
+  console.log(`🔓 [unlockVault:${unlockId}] Decrypted JSON length: ${decrypted.length}`);
   
   let vaultData = JSON.parse(decrypted) as VaultData;
   
   // Ensure groups array exists (migration from older versions)
   if (!vaultData.groups) {
+    console.log(`🔓 [unlockVault:${unlockId}] No groups array, creating empty one`);
     vaultData.groups = [];
   }
   
   // Migrate from v1 if necessary
   if (vault.version === 1) {
+    console.log(`🔓 [unlockVault:${unlockId}] Migrating from v1 to v2...`);
     vaultData = await migrateVaultV1ToV2(vaultData);
   }
+  
+  console.log(`🔓 [unlockVault:${unlockId}] SUCCESS - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+  console.log(`🔓 [unlockVault:${unlockId}] Group IDs:`, vaultData.groups.map(g => ({ id: g.id, name: g.name })));
   
   return vaultData;
 }
@@ -171,18 +193,29 @@ export async function saveVault(
   masterPassword: string
 ): Promise<void> {
   const BACKUP_KEY = 'vault_backup';
+  const saveId = Math.random().toString(36).substring(7);
+  
+  console.log(`🔵 [saveVault:${saveId}] START - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+  console.log(`🔵 [saveVault:${saveId}] Group IDs:`, vaultData.groups.map(g => ({ id: g.id, name: g.name })));
   
   try {
     // Step 1: Backup current vault before overwriting
+    console.log(`🔵 [saveVault:${saveId}] Step 1: Reading current vault for backup...`);
     const currentResult = await chrome.storage.local.get(STORAGE_KEYS.VAULT);
     const currentVault = currentResult[STORAGE_KEYS.VAULT];
     if (currentVault) {
+      console.log(`🔵 [saveVault:${saveId}] Current vault exists, backing up...`);
       await chrome.storage.local.set({ [BACKUP_KEY]: currentVault });
+    } else {
+      console.log(`🔵 [saveVault:${saveId}] No current vault to backup`);
     }
     
     // Step 2: Encrypt and save new vault
+    console.log(`🔵 [saveVault:${saveId}] Step 2: Encrypting vault...`);
     const vaultJson = JSON.stringify(vaultData);
+    console.log(`🔵 [saveVault:${saveId}] Vault JSON length: ${vaultJson.length}`);
     const { salt, iv, encrypted } = await encryptVault(vaultJson, masterPassword);
+    console.log(`🔵 [saveVault:${saveId}] Encrypted data length: ${encrypted.length}`);
     
     const encryptedVault: EncryptedVault = {
       version: CURRENT_VAULT_VERSION,
@@ -191,15 +224,19 @@ export async function saveVault(
       data: encrypted,
     };
     
+    console.log(`🔵 [saveVault:${saveId}] Writing to chrome.storage.local...`);
     await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: encryptedVault });
+    console.log(`🔵 [saveVault:${saveId}] Write complete`);
     
     // Step 3: Verify the write succeeded by attempting to decrypt
+    console.log(`🔵 [saveVault:${saveId}] Step 3: Verifying write...`);
     const verifyResult = await chrome.storage.local.get(STORAGE_KEYS.VAULT);
     const savedVault = verifyResult[STORAGE_KEYS.VAULT] as EncryptedVault | undefined;
     
     if (!savedVault) {
       throw new Error('Vault save verification failed: vault not found after save');
     }
+    console.log(`🔵 [saveVault:${saveId}] Saved vault found, decrypting to verify...`);
     
     // Verify we can decrypt with the password
     const testDecrypt = await decryptVault(
@@ -215,6 +252,8 @@ export async function saveVault(
     
     // Parse and verify data integrity
     const parsedVault = JSON.parse(testDecrypt) as VaultData;
+    console.log(`🔵 [saveVault:${saveId}] Verified vault - keys: ${parsedVault.keys?.length}, groups: ${parsedVault.groups?.length}`);
+    
     if (!parsedVault.keys || !parsedVault.groups) {
       throw new Error('Vault save verification failed: data structure invalid');
     }
@@ -222,19 +261,17 @@ export async function saveVault(
     // Verify counts match
     if (parsedVault.keys.length !== vaultData.keys.length || 
         parsedVault.groups.length !== vaultData.groups.length) {
+      console.error(`🔴 [saveVault:${saveId}] COUNT MISMATCH! Expected keys=${vaultData.keys.length} groups=${vaultData.groups.length}, got keys=${parsedVault.keys.length} groups=${parsedVault.groups.length}`);
       throw new Error('Vault save verification failed: data count mismatch');
     }
     
     // Step 4: Clear backup on success
     await chrome.storage.local.remove(BACKUP_KEY);
     
-    console.log('✅ Vault saved successfully:', {
-      keys: vaultData.keys.length,
-      groups: vaultData.groups.length
-    });
+    console.log(`🟢 [saveVault:${saveId}] SUCCESS - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
     
   } catch (error) {
-    console.error('❌ Vault save failed:', error);
+    console.error(`🔴 [saveVault:${saveId}] FAILED:`, error);
     
     // Attempt to restore backup
     try {
@@ -242,10 +279,10 @@ export async function saveVault(
       const backup = backupResult[BACKUP_KEY];
       if (backup) {
         await chrome.storage.local.set({ [STORAGE_KEYS.VAULT]: backup });
-        console.log('🔄 Restored vault from backup after save failure');
+        console.log(`🟡 [saveVault:${saveId}] Restored vault from backup after save failure`);
       }
     } catch (restoreError) {
-      console.error('❌ Failed to restore backup:', restoreError);
+      console.error(`🔴 [saveVault:${saveId}] Failed to restore backup:`, restoreError);
     }
     
     throw error; // Re-throw so caller knows save failed
@@ -464,15 +501,29 @@ export async function addGroupToVault(
   group: QuackGroup,
   vaultData: VaultData
 ): Promise<VaultData> {
+  const addId = Math.random().toString(36).substring(7);
+  console.log(`➕ [addGroupToVault:${addId}] START`);
+  console.log(`➕ [addGroupToVault:${addId}] Adding group: id=${group.id}, name=${group.name}`);
+  console.log(`➕ [addGroupToVault:${addId}] Current vaultData - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+  console.log(`➕ [addGroupToVault:${addId}] Existing group IDs:`, vaultData.groups.map(g => g.id));
+  
   // Check for duplicate (same AES key)
   if (hasGroup(group.aesKey, vaultData)) {
+    console.log(`➕ [addGroupToVault:${addId}] DUPLICATE - group already exists`);
     throw new Error(`You're already a member of this group`);
   }
   
-  return {
+  const newGroups = [...vaultData.groups, group];
+  console.log(`➕ [addGroupToVault:${addId}] New groups array length: ${newGroups.length}`);
+  console.log(`➕ [addGroupToVault:${addId}] New group IDs:`, newGroups.map(g => g.id));
+  
+  const result = {
     ...vaultData,
-    groups: [...vaultData.groups, group],
+    groups: newGroups,
   };
+  
+  console.log(`➕ [addGroupToVault:${addId}] Result - keys: ${result.keys.length}, groups: ${result.groups.length}`);
+  return result;
 }
 
 /**

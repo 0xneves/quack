@@ -19,6 +19,9 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete, onImport }: On
   const [copySuccess, setCopySuccess] = useState(false);
 
   async function handleGenerateIdentity() {
+    const genId = Math.random().toString(36).substring(7);
+    console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] START`);
+    
     if (!identityName.trim()) {
       alert('Please enter a name for your identity');
       return;
@@ -27,17 +30,27 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete, onImport }: On
     setIsGenerating(true);
     
     try {
+      console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] Current vaultData - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+      
+      console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] Generating key...`);
       const key = await generatePersonalKey(identityName);
+      console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] Key generated - id: ${key.id}`);
+      
+      console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] Adding key to vault...`);
       const updatedVault = await addKeyToVault(key, vaultData);
+      console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] Updated vault - keys: ${updatedVault.keys.length}, groups: ${updatedVault.groups.length}`);
+      
+      console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] Calling onVaultUpdate...`);
       onVaultUpdate(updatedVault);
       
       // Get the public key string for sharing
       const keyString = exportPublicKey(key);
       setGeneratedKeyString(keyString);
       
+      console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] SUCCESS - going to share-key step`);
       setStep('share-key');
     } catch (error) {
-      console.error('Failed to generate identity:', error);
+      console.error(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] FAILED:`, error);
       alert('Failed to generate identity. Please try again.');
     } finally {
       setIsGenerating(false);
