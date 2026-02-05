@@ -74,10 +74,7 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete, onImport }: On
           <div className="text-7xl mb-6 animate-bounce">🦆</div>
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Welcome to Quack!</h1>
           <p className="text-gray-600 mb-2 max-w-sm">
-            Encrypt your messages anywhere on the web with <strong>post-quantum security</strong>.
-          </p>
-          <p className="text-gray-500 text-sm mb-8 max-w-sm">
-            YouTube comments, Twitter DMs, Reddit posts — encrypted so only your friends can read them.
+            Encrypt your messages anywhere with <strong>post-quantum security</strong> - X, YouTube, Reddit, DMs, no platform switching required.
           </p>
           
           <div className="bg-white rounded-xl shadow-lg p-6 mb-8 max-w-sm">
