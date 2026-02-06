@@ -447,23 +447,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">👥</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No groups yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Create a group to start sharing encrypted messages, or join an existing group with an invitation.
                 </p>
-                <div className="flex gap-3 justify-center">
-                  <button
-                    onClick={() => { setImportKeyString(''); setModal('joinGroup'); }}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-6 py-2 rounded-lg font-medium transition duration-200"
-                  >
-                    📩 Join Group
-                  </button>
-                  <button
-                    onClick={() => setModal('newGroup')}
-                    className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                  >
-                    + Create Group
-                  </button>
-                </div>
               </div>
             ) : (
               <div className="space-y-3">
@@ -517,15 +503,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">🔑</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No identity yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Generate your identity key so others can invite you to groups securely.
                 </p>
-                <button
-                  onClick={() => setModal('newIdentity')}
-                  className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                >
-                  Generate Identity
-                </button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -576,15 +556,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">📇</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No contacts yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Add contacts by importing their public key (Quack://KEY:...) so you can invite them to groups.
                 </p>
-                <button
-                  onClick={() => setModal('addContact')}
-                  className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                >
-                  Add Contact
-                </button>
               </div>
             ) : (
               <div className="space-y-3">
