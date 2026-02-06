@@ -2,9 +2,11 @@ import { useState } from 'react';
 
 interface LoginScreenProps {
   onLogin: (password: string) => void;
+  /** Optional message to display (e.g., "Session expired due to inactivity") */
+  message?: string;
 }
 
-function LoginScreen({ onLogin }: LoginScreenProps) {
+function LoginScreen({ onLogin, message }: LoginScreenProps) {
   const [password, setPassword] = useState('');
 
   function handleSubmit(e: React.FormEvent) {
@@ -28,6 +30,12 @@ function LoginScreen({ onLogin }: LoginScreenProps) {
             Enter your master password to unlock
           </p>
         </div>
+
+        {message && (
+          <div className="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-3 text-center">
+            <p className="text-orange-700 text-sm font-medium">{message}</p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

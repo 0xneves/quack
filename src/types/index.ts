@@ -234,6 +234,7 @@ export type MessageType =
   | 'CHECK_AUTH'            // Ask background: "Do you have the password?"
   | 'SAVE_VAULT'            // Send vault data to background to save (background uses cached password)
   | 'LOCK_VAULT'            // Trigger lock: wipe password + decrypted data from memory
+  | 'UPDATE_ACTIVITY'       // Popup heartbeat: "I'm still open, reset auto-lock timer"
   // UI
   | 'OPEN_SECURE_COMPOSE'
   | 'OPEN_UNLOCK'

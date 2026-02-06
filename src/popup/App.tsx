@@ -28,10 +28,35 @@ type Screen = 'loading' | 'setup' | 'login' | 'dashboard' | 'compose' | 'decrypt
 function App() {
   const [screen, setScreen] = useState<Screen>('loading');
   const [vaultData, setVaultData] = useState<VaultData | null>(null);
+  const [loginMessage, setLoginMessage] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     initialize();
   }, []);
+
+  /**
+   * Heartbeat: While popup is open, send UPDATE_ACTIVITY every 30s
+   * to reset the auto-lock timer. This prevents auto-lock from
+   * triggering while the user is actively using the extension.
+   */
+  useEffect(() => {
+    // Only send heartbeats while authenticated (not on setup/login screens)
+    if (!vaultData) return;
+
+    // Send immediately on mount (popup just opened)
+    chrome.runtime.sendMessage({ type: 'UPDATE_ACTIVITY' }).catch(() => {});
+
+    const heartbeat = setInterval(() => {
+      chrome.runtime.sendMessage({ type: 'UPDATE_ACTIVITY' }).catch(() => {});
+    }, 30_000);
+
+    return () => clearInterval(heartbeat);
+  }, [vaultData]);
+
+  // NOTE: Auto-lock only triggers when popup is closed (heartbeat prevents it
+  // while open). When popup reopens, CHECK_AUTH detects the lock and goes to
+  // login naturally. If background restarts while popup is open, the next
+  // operation returns NOT_AUTHENTICATED and forceLock() handles it smoothly.
 
   /**
    * Initialize: Check if background is authenticated (has password in memory).
@@ -127,6 +152,7 @@ function App() {
   async function handleLogin(password: string) {
     const loginId = Math.random().toString(36).substring(7);
     console.log(`🔐 [handleLogin:${loginId}] START`);
+    setLoginMessage(undefined); // Clear any "session expired" message
     
     try {
       // Send password to background - it handles decryption and caching
@@ -188,12 +214,13 @@ function App() {
   /**
    * Force lock: Called when background reports NOT_AUTHENTICATED.
    * This handles the case where background lost its password (worker restart, etc.)
+   * Navigates smoothly to login with a message - no alert().
    */
-  function forceLock() {
+  function forceLock(reason?: string) {
     console.warn('🔒 [forceLock] Session expired - forcing lock');
     setVaultData(null);
+    setLoginMessage(reason || 'Session expired. Please log in again.');
     setScreen('login');
-    alert('Session expired. Please log in again.');
   }
 
   function handleCompose() {
@@ -355,7 +382,7 @@ function App() {
   }
 
   if (screen === 'login') {
-    return <LoginScreen onLogin={handleLogin} />;
+    return <LoginScreen onLogin={handleLogin} message={loginMessage} />;
   }
 
   if (screen === 'compose' && vaultData) {

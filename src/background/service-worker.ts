@@ -39,7 +39,7 @@ import {
   parseKeyString, 
   exportPublicKey 
 } from '@/storage/vault';
-import { getSession, shouldAutoLock, markVaultLocked, migrateSessionToMemoryOnly } from '@/storage/settings';
+import { getSession, shouldAutoLock, markVaultLocked, updateLastActivity, migrateSessionToMemoryOnly } from '@/storage/settings';
 import { 
   encryptGroupMessage, 
   decryptMessage,
@@ -135,6 +135,9 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
     
     case 'LOCK_VAULT':
       return await handleLockVault();
+    
+    case 'UPDATE_ACTIVITY':
+      return await handleUpdateActivity();
     
     case 'GET_VAULT_DATA':
       return handleGetVaultData();
@@ -656,6 +659,18 @@ async function handleLockVault() {
   await markVaultLocked();
   
   console.log(`🔒 [handleLockVault:${lockId}] SUCCESS - password and vault wiped from memory`);
+  return { success: true };
+}
+
+/**
+ * UPDATE_ACTIVITY: Popup heartbeat - reset auto-lock timer.
+ * Called periodically while popup is open so auto-lock doesn't trigger
+ * while the user is actively using the extension.
+ */
+async function handleUpdateActivity() {
+  if (cachedMasterPassword) {
+    await updateLastActivity();
+  }
   return { success: true };
 }
 
