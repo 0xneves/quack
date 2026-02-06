@@ -20,6 +20,7 @@ import {
 } from '@/storage/vault';
 import { createGroupInvitation, parseInvitation, acceptInvitation } from '@/crypto/group';
 import { formatDate } from '@/utils/helpers';
+import { GROUP_EMOJIS } from '@/utils/constants';
 
 interface DashboardScreenProps {
   vaultData: VaultData;
@@ -33,9 +34,6 @@ interface DashboardScreenProps {
 
 type TabType = 'identity' | 'contacts' | 'groups';
 type ModalType = 'newIdentity' | 'addContact' | 'keyDetails' | 'newGroup' | 'groupDetails' | 'inviteToGroup' | 'joinGroup' | null;
-
-// Common emoji options for groups
-const GROUP_EMOJIS = ['🦆', '🔐', '👥', '🏠', '💼', '🎮', '🎵', '📚', '🌟', '💬', '🔒', '🛡️'];
 
 function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecrypt, onConnect, onSettings }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<TabType>('groups');

@@ -32,6 +32,9 @@ export const MAX_AUTO_DECRYPTS = 10;
 export const AUTO_LOCK_TIMEOUT = 15; // minutes
 export const NOTIFICATION_DURATION = 3000; // ms
 
+// Group emoji options for group creation
+export const GROUP_EMOJIS = ['🦆', '❤️', '👥', '🏠', '💼', '🎮', '🎵', '📚', '🌟', '💬', '🔒', '🛡️'];
+
 // Storage Keys
 export const STORAGE_KEYS = {
   // New separated storage (v3)
