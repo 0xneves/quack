@@ -20,6 +20,7 @@ import {
 } from '@/storage/vault';
 import { createGroupInvitation, parseInvitation, acceptInvitation } from '@/crypto/group';
 import { formatDate } from '@/utils/helpers';
+import { GROUP_EMOJIS } from '@/utils/constants';
 
 interface DashboardScreenProps {
   vaultData: VaultData;
@@ -33,9 +34,6 @@ interface DashboardScreenProps {
 
 type TabType = 'identity' | 'contacts' | 'groups';
 type ModalType = 'newIdentity' | 'addContact' | 'keyDetails' | 'newGroup' | 'groupDetails' | 'inviteToGroup' | 'joinGroup' | null;
-
-// Common emoji options for groups
-const GROUP_EMOJIS = ['🦆', '🔐', '👥', '🏠', '💼', '🎮', '🎵', '📚', '🌟', '💬', '🔒', '🛡️'];
 
 function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecrypt, onConnect, onSettings }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<TabType>('groups');
@@ -325,7 +323,11 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <span className="text-3xl">🦆</span>
+            <img 
+              src="/svg/logo-quack-green.svg" 
+              alt="Quack" 
+              className="w-10 h-10"
+            />
             <h1 className="text-2xl font-bold text-gray-900">Quack</h1>
           </div>
           <div className="flex items-center gap-3">
@@ -338,21 +340,21 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               className="text-gray-500 hover:text-gray-700 font-medium"
               title="Open Side Panel"
             >
-              📑
+              <img src="/svg/sidebar-svgrepo-com.svg" alt="Side Panel" className="w-5 h-5 opacity-60 hover:opacity-100" />
             </button>
             {onSettings && (
               <button
                 onClick={onSettings}
                 className="text-gray-500 hover:text-gray-700 font-medium"
               >
-                ⚙️
+                <img src="/svg/gear-svgrepo-com.svg" alt="Settings" className="w-5 h-5 opacity-60 hover:opacity-100" />
               </button>
             )}
             <button
               onClick={onLock}
-              className="text-gray-500 hover:text-gray-700 font-medium"
+              className="flex items-center gap-1 text-gray-500 hover:text-gray-700 font-medium"
             >
-              🔒 Lock
+              <img src="/svg/lock-hashtag-svgrepo-com.svg" alt="Lock" className="w-5 h-5 opacity-60 hover:opacity-100" />
             </button>
           </div>
         </div>
@@ -377,7 +379,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
             onClick={onConnect}
             className="w-full bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2 px-4 rounded-lg transition duration-200"
           >
-            🤝 Connect with Someone
+            🤝 Need help connecting?
           </button>
         )}
       </div>
@@ -447,23 +449,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">👥</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No groups yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Create a group to start sharing encrypted messages, or join an existing group with an invitation.
                 </p>
-                <div className="flex gap-3 justify-center">
-                  <button
-                    onClick={() => { setImportKeyString(''); setModal('joinGroup'); }}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-6 py-2 rounded-lg font-medium transition duration-200"
-                  >
-                    📩 Join Group
-                  </button>
-                  <button
-                    onClick={() => setModal('newGroup')}
-                    className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                  >
-                    + Create Group
-                  </button>
-                </div>
               </div>
             ) : (
               <div className="space-y-3">
@@ -517,15 +505,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">🔑</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No identity yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Generate your identity key so others can invite you to groups securely.
                 </p>
-                <button
-                  onClick={() => setModal('newIdentity')}
-                  className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                >
-                  Generate Identity
-                </button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -576,15 +558,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">📇</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No contacts yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Add contacts by importing their public key (Quack://KEY:...) so you can invite them to groups.
                 </p>
-                <button
-                  onClick={() => setModal('addContact')}
-                  className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                >
-                  Add Contact
-                </button>
               </div>
             ) : (
               <div className="space-y-3">

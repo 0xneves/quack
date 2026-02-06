@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { VaultData } from '@/types';
 import { 
   validateExportPassword, 
   exportVault, 
   downloadExportFile 
 } from '@/storage/export';
+import { getSettings, saveSettings } from '@/storage/settings';
+
+/** Default minutes when toggling ON */
+const DEFAULT_LOCK_MINUTES = 15;
 
 interface SettingsScreenProps {
   vaultData: VaultData;
@@ -19,6 +23,28 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [autoLockTimeout, setAutoLockTimeout] = useState<number>(15);
+  const [stealthDecryption, setStealthDecryption] = useState<boolean>(true);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Load current settings on mount
+  useEffect(() => {
+    getSettings().then(settings => {
+      setAutoLockTimeout(settings.autoLockTimeout);
+      setStealthDecryption(settings.stealthDecryption ?? true);
+      setSettingsLoaded(true);
+    });
+  }, []);
+
+  async function handleAutoLockChange(value: number) {
+    setAutoLockTimeout(value);
+    await saveSettings({ autoLockTimeout: value });
+  }
+
+  async function handleStealthDecryptionChange(value: boolean) {
+    setStealthDecryption(value);
+    await saveSettings({ stealthDecryption: value });
+  }
 
   // Stats
   const personalKeys = vaultData.keys.filter(k => k.type === 'personal').length;
@@ -102,18 +128,124 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">📊 Vault Summary</h2>
           <div className="grid grid-cols-3 gap-4 text-center">
-            <div className="bg-purple-50 rounded-lg p-4">
+            <div className="bg-purple-50 rounded-lg p-2">
               <div className="text-2xl font-bold text-purple-600">{personalKeys}</div>
-              <div className="text-sm text-purple-700">Identity Keys</div>
+              <div className="text-sm text-purple-700">Identities</div>
             </div>
-            <div className="bg-blue-50 rounded-lg p-4">
+            <div className="bg-blue-50 rounded-lg p-2">
               <div className="text-2xl font-bold text-blue-600">{contacts}</div>
               <div className="text-sm text-blue-700">Contacts</div>
             </div>
-            <div className="bg-green-50 rounded-lg p-4">
+            <div className="bg-green-50 rounded-lg p-2">
               <div className="text-2xl font-bold text-green-600">{groups}</div>
               <div className="text-sm text-green-700">Groups</div>
             </div>
+          </div>
+        </div>
+
+        {/* Security Section */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">🔒 Security</h2>
+
+          <div className="space-y-3">
+            {/* Row: label + toggle */}
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-gray-900 text-sm">Auto-Lock Timer</h3>
+
+              {settingsLoaded && (
+                <div
+                  className="relative flex items-center rounded-full cursor-pointer select-none"
+                  style={{
+                    backgroundColor: autoLockTimeout > 0 ? '#f97316' : '#d1d5db',
+                    width: '132px',
+                    height: '32px',
+                  }}
+                  onClick={() => {
+                    if (autoLockTimeout > 0) {
+                      handleAutoLockChange(0);
+                    } else {
+                      handleAutoLockChange(DEFAULT_LOCK_MINUTES);
+                    }
+                  }}
+                >
+                  {/* Sliding thumb */}
+                  <div
+                    className="absolute rounded-full bg-white shadow-md transition-all duration-300 ease-in-out flex items-center justify-center"
+                    style={{
+                      width: '50%',
+                      top: '3px',
+                      bottom: '3px',
+                      left: autoLockTimeout > 0 ? '3px' : 'calc(50% - 3px)',
+                    }}
+                  >
+                    <span className="text-xs font-bold text-gray-700">
+                      {autoLockTimeout > 0 ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+
+                  {/* Right side — minutes input (visible when ON) */}
+                  {autoLockTimeout > 0 && (
+                    <div
+                      className="absolute right-0 top-0 bottom-0 flex items-center justify-center gap-0.5"
+                      style={{ width: '50%' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={autoLockTimeout}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/\D/g, '');
+                          const num = Math.min(Number(raw) || 0, 999);
+                          setAutoLockTimeout(num);
+                        }}
+                        onBlur={() => {
+                          const final = autoLockTimeout < 1 ? DEFAULT_LOCK_MINUTES : autoLockTimeout;
+                          handleAutoLockChange(final);
+                        }}
+                        className="bg-transparent text-white font-bold text-sm text-center outline-none"
+                        style={{ width: '36px' }}
+                        maxLength={3}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-500">
+              {autoLockTimeout > 0
+                ? `Vault locks after ${autoLockTimeout} min of inactivity when the popup is closed.`
+                : 'Vault stays unlocked until you lock manually or close the browser.'}
+            </p>
+          </div>
+
+          {/* Stealth Decryption Toggle */}
+          <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-gray-900 text-sm">🥷 Stealth Decryption</h3>
+
+              {settingsLoaded && (
+                <button
+                  onClick={() => handleStealthDecryptionChange(!stealthDecryption)}
+                  className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
+                    stealthDecryption ? 'bg-purple-500' : 'bg-gray-300'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                      stealthDecryption ? 'translate-x-7' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-500">
+              {stealthDecryption
+                ? 'Stealth messages (hidden recipient) will be decrypted by trying all your keys. Slightly slower but provides maximum privacy.'
+                : 'Stealth messages will be ignored. Enable to decrypt messages where the sender hid the recipient fingerprint.'}
+            </p>
           </div>
         </div>
 
@@ -160,19 +292,10 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
           </div>
         </div>
 
-        {/* Security Info */}
-        <div className="bg-blue-50 border-l-4 border-blue-400 p-4">
-          <p className="text-blue-700 text-sm">
-            <strong>🔐 Security Note:</strong> Your export file is encrypted with AES-256-GCM 
-            using a separate export password. Choose a strong password you'll remember — 
-            without it, the backup cannot be restored.
-          </p>
-        </div>
-
         {/* Version Info */}
         <div className="text-center text-gray-500 text-sm">
-          <p>Quack v0.1.0</p>
-          <p className="mt-1">🦆 Post-quantum encryption for everyone</p>
+          <p>🦆 Quack! v0.1.0</p>
+          <p className="mt-1">Quack-quantum encryption for everyone</p>
         </div>
       </div>
 

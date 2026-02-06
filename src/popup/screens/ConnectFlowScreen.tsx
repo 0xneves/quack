@@ -11,6 +11,7 @@ import {
   getPersonalKeys
 } from '@/storage/vault';
 import { createGroupInvitation } from '@/crypto/group';
+import { GROUP_EMOJIS } from '@/utils/constants';
 
 interface ConnectFlowScreenProps {
   vaultData: VaultData;
@@ -21,8 +22,6 @@ interface ConnectFlowScreenProps {
 type Mode = 'choose' | 'alice' | 'bob';
 type AliceStep = 'share-key' | 'add-contact' | 'create-group' | 'invite' | 'done';
 type BobStep = 'add-contact' | 'share-key' | 'wait-invite' | 'done';
-
-const GROUP_EMOJIS = ['🦆', '🔐', '👥', '🏠', '💼', '🎮', '🎵', '📚', '🌟', '💬', '🔒', '🛡️'];
 
 function ConnectFlowScreen({ vaultData, onVaultUpdate, onBack }: ConnectFlowScreenProps) {
   const [mode, setMode] = useState<Mode>('choose');

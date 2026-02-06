@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Quack - Universal Web Encryption",
+  "name": "Quack!",
   "version": "0.1.0",
   "description": "Encrypt your messages anywhere on the web with post-quantum cryptography",
   "icons": {
