@@ -71,7 +71,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
     try {
       const key = await generatePersonalKey(newKeyName);
       const updatedVault = await addKeyToVault(key, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setNewKeyName('');
       setModal(null);
     } catch (error) {
@@ -107,7 +107,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
     try {
       const contact = await createContactKey(newKeyName, parsed.publicKey);
       const updatedVault = await addKeyToVault(contact, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setNewKeyName('');
       setImportKeyString('');
       setModal(null);
@@ -129,7 +129,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
 
     try {
       const updatedVault = await removeKeyFromVault(keyId, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setSelectedKey(null);
       setModal(null);
     } catch (error) {
@@ -173,7 +173,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
       console.log(`🆕 [handleCreateGroup:${createId}] Updated group IDs:`, updatedVault.groups.map(g => ({ id: g.id, name: g.name })));
       
       console.log(`🆕 [handleCreateGroup:${createId}] Calling onVaultUpdate()...`);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       
       setNewGroupName('');
       setNewGroupEmoji('🦆');
@@ -194,7 +194,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
 
     try {
       const updatedVault = await removeGroupFromVault(groupId, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setSelectedGroup(null);
       setModal(null);
     } catch (error) {
@@ -273,7 +273,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
 
       const group = await createGroupFromInvitation(payload);
       const updatedVault = await addGroupToVault(group, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setImportKeyString('');
       setModal(null);
       alert(`Successfully joined "${payload.groupName}"! 🎉`);

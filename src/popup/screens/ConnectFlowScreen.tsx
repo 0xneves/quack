@@ -77,7 +77,7 @@ function ConnectFlowScreen({ vaultData, onVaultUpdate, onBack }: ConnectFlowScre
     try {
       const contact = await createContactKey(contactName, parsed.publicKey);
       const updatedVault = await addKeyToVault(contact, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setCreatedContact(contact);
       setAliceStep('create-group');
     } catch (error: any) {
@@ -103,7 +103,7 @@ function ConnectFlowScreen({ vaultData, onVaultUpdate, onBack }: ConnectFlowScre
         primaryKey?.fingerprint
       );
       const updatedVault = await addGroupToVault(group, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setCreatedGroup(group);
       setAliceStep('invite');
     } catch (error: any) {
@@ -161,7 +161,7 @@ function ConnectFlowScreen({ vaultData, onVaultUpdate, onBack }: ConnectFlowScre
     try {
       const contact = await createContactKey(contactName, parsed.publicKey);
       const updatedVault = await addKeyToVault(contact, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setCreatedContact(contact);
       setBobStep('share-key');
     } catch (error: any) {
