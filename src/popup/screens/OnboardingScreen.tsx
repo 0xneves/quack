@@ -242,8 +242,7 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete }: OnboardingSc
           <div className="text-7xl mb-6">🎉</div>
           <h1 className="text-3xl font-bold text-gray-900 mb-4">You're Ready!</h1>
           <p className="text-gray-600 mb-8 max-w-sm">
-            Your identity is set up. Now you can create groups, invite friends, 
-            and start encrypting messages anywhere on the web.
+            Create groups, invite friends, and start encrypting messages anywhere on the web.
           </p>
           
           <div className="bg-white rounded-xl shadow-lg p-6 mb-8 max-w-sm w-full">
@@ -267,7 +266,7 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete }: OnboardingSc
                 <span className="text-2xl">✍️</span>
                 <div>
                   <p className="font-medium text-gray-900">Ready to encrypt?</p>
-                  <p className="text-sm text-gray-600">Type <code className="bg-gray-100 px-1 rounded">Quack://</code> anywhere!</p>
+                  <p className="text-sm text-gray-600">Type <code className="bg-gray-100 px-1 rounded">quack:</code> anywhere!</p>
                 </div>
               </div>
             </div>
