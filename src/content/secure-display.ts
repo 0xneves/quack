@@ -15,6 +15,7 @@
 
 import { QUACK_MSG_REGEX, MAX_AUTO_DECRYPTS } from '@/utils/constants';
 import { sendMessageSafe, isWithinEditable, positionCard } from './utils';
+import { showNotification } from './notifications';
 
 // ============================================================================
 // Types
@@ -305,10 +306,14 @@ function showSelectionCard(encrypted: string, selectionRect: DOMRect): void {
     tempEl.style.cssText = `position:fixed;left:${selectionRect.left}px;top:${selectionRect.top}px;`;
     document.body.appendChild(tempEl);
     
-    await decryptCipher(encrypted, tempEl);
+    const success = await decryptCipher(encrypted, tempEl);
     
     tempEl.remove();
     hideSelectionCard();
+    
+    if (!success) {
+      showNotification('🔒 You don\'t have the key to decrypt this message');
+    }
   });
   
   copyBtn?.addEventListener('click', async (e) => {
