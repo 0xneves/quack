@@ -118,13 +118,6 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
               </button>
             </div>
           </div>
-
-          <div className="mt-6 bg-blue-50 border-l-4 border-blue-400 p-4">
-            <p className="text-blue-700 text-sm">
-              <strong>💡 Tip:</strong> Paste this encrypted message anywhere (Twitter, Discord, Email...). 
-              Only members of <strong>{selectedGroup.emoji || '👥'} {selectedGroup.name}</strong> can decrypt it.
-            </p>
-          </div>
         </div>
       </div>
     );
@@ -145,13 +138,6 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
       </div>
 
       <div className="p-6 space-y-6">
-        <div className="bg-green-50 border-l-4 border-green-400 p-4">
-          <p className="text-green-700 text-sm">
-            <strong>🔒 Protected:</strong> Your message is composed in an isolated environment,
-            safe from page analytics and keyloggers.
-          </p>
-        </div>
-
         {/* Group selector */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -238,14 +224,6 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
             <strong>How it works:</strong> Your message is encrypted using AES-256-GCM with the 
             group's shared key. Anyone in the group can decrypt it — nobody else can.
           </p>
-        </div>
-
-        {/* Post-quantum badge */}
-        <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-          <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">
-            🛡️ Post-Quantum Secure
-          </span>
-          <span>Group keys are shared via ML-KEM-768</span>
         </div>
       </div>
     </div>

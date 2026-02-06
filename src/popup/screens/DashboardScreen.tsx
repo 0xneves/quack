@@ -379,7 +379,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
             onClick={onConnect}
             className="w-full bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2 px-4 rounded-lg transition duration-200"
           >
-            🤝 Connect with Someone
+            🤝 Need help connecting?
           </button>
         )}
       </div>
