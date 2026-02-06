@@ -10,7 +10,7 @@ import { isLockedError, requestUnlock, sendMessageSafe } from './utils';
 // Overlay dimensions
 const OVERLAY_WIDTH = 340;
 const OVERLAY_HEIGHT = 260;
-const OVERLAY_MAX_HEIGHT = 420;
+const OVERLAY_MAX_HEIGHT = 520;
 const OVERLAY_MIN_HEIGHT = 180;
 const OVERLAY_MARGIN = 12;
 
@@ -144,7 +144,7 @@ function handleOverlayPortMessage(kind: OverlayKind, event: MessageEvent): void 
       break;
     }
     case 'encrypt-request': {
-      handleOverlayEncryptRequest(data.plaintext ?? '', data.keyId);
+      handleOverlayEncryptRequest(data.plaintext ?? '', data.groupId);
       break;
     }
     case 'drag-start': {
@@ -301,16 +301,16 @@ function setupEncryptOverlayDismiss(): void {
   };
 }
 
-async function handleOverlayEncryptRequest(plaintext: string, keyId: string): Promise<void> {
-  if (!keyId) {
-    sendOverlayMessage('encrypt', { type: 'encrypt-result', error: 'No key selected' });
+async function handleOverlayEncryptRequest(plaintext: string, groupId: string): Promise<void> {
+  if (!groupId) {
+    sendOverlayMessage('encrypt', { type: 'encrypt-result', error: 'No group selected' });
     return;
   }
   
   try {
     const resp = await sendMessageSafe({
       type: 'ENCRYPT_MESSAGE',
-      payload: { plaintext, keyId },
+      payload: { plaintext, groupId },
     });
     
     if (isLockedError(resp?.error)) {
@@ -390,10 +390,10 @@ export async function openEncryptBubble(
 ): Promise<void> {
   encryptOverlayActive = true;
   
-  const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
-  const keys = keyResponse.keys || [];
+  const groupResponse = await sendMessageSafe({ type: 'GET_GROUPS' });
+  const groups = groupResponse.groups || [];
   
-  if (!keys.length) {
+  if (!groups.length) {
     encryptOverlayActive = false;
     requestUnlock();
     return;
@@ -401,5 +401,5 @@ export async function openEncryptBubble(
   
   await showOverlay('encrypt', anchor || editable.getBoundingClientRect());
   setupEncryptOverlayDismiss();
-  sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', keys, prefill });
+  sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', groups, prefill });
 }

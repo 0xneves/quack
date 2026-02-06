@@ -34,6 +34,8 @@ interface BubbleState {
   frame: HTMLIFrameElement;
   cipherId: string;
   port: MessagePort | null;
+  dragging: boolean;
+  position: { top: number; left: number };
 }
 
 // ============================================================================
@@ -141,6 +143,8 @@ function createBubble(cipher: DetectedCipher): BubbleState | null {
     frame,
     cipherId: cipher.id,
     port: null,
+    dragging: false,
+    position: { ...pos },
   };
   
   frame.onload = () => {
@@ -153,6 +157,29 @@ function createBubble(cipher: DetectedCipher): BubbleState | null {
         closeBubble(cipher.id);
       } else if (data?.type === 'copy' && typeof data.text === 'string') {
         navigator.clipboard?.writeText(data.text).catch(console.error);
+      } else if (data?.type === 'drag-start') {
+        state.dragging = true;
+      } else if (data?.type === 'drag-end') {
+        state.dragging = false;
+      } else if (data?.type === 'drag-move' && state.dragging) {
+        const deltaX = data.deltaX ?? 0;
+        const deltaY = data.deltaY ?? 0;
+        const viewportW = window.innerWidth;
+        const viewportH = window.innerHeight;
+        const frameW = state.frame.offsetWidth || BUBBLE_WIDTH;
+        const frameH = state.frame.offsetHeight || BUBBLE_HEIGHT;
+        
+        state.position.left = Math.min(
+          Math.max(BUBBLE_MARGIN, state.position.left + deltaX),
+          viewportW - frameW - BUBBLE_MARGIN
+        );
+        state.position.top = Math.min(
+          Math.max(BUBBLE_MARGIN, state.position.top + deltaY),
+          viewportH - frameH - BUBBLE_MARGIN
+        );
+        
+        state.frame.style.left = `${state.position.left}px`;
+        state.frame.style.top = `${state.position.top}px`;
       }
     };
     

@@ -1,26 +1,25 @@
 /**
  * Content Script Input Detection
  * 
- * Detects Quack:// triggers in input fields, tracks editables, and shows encrypt prompts.
+ * Detects Quack triggers in input fields and shows "Start a secure message?" prompt.
+ * All triggers (Quack://, Quack:, quack:, ___) use the same UX flow:
+ * 1. User types a trigger pattern
+ * 2. "Start a secure message?" prompt appears
+ * 3. Clicking "Yes" opens the encrypt bubble
  */
 
 import { debounce, getElementValue } from '@/utils/helpers';
-import { getEditableRoot, getTriggerAnchorRect, positionCard } from './utils';
-import { showNotification, showSecureComposePrompt } from './notifications';
+import { getEditableRoot, getTriggerAnchorRect } from './utils';
+import { showSecureComposePrompt } from './notifications';
 import { updateInlineHighlight } from './inline-highlight';
 import { openEncryptBubble, isEncryptOverlayActive, setEncryptOverlayCloseCallback } from './overlay-manager';
 
-// Encrypt trigger patterns: Quack: or quack: or ___ (but not Quack://)
-const ENCRYPT_TRIGGER_PATTERNS = /(Quack:|quack:|___)(?!\/\/)/g;
+// Unified trigger pattern: Quack://, Quack:, quack:, or ___
+const TRIGGER_PATTERN = /(?:Quack:\/\/|Quack:|quack:|___)/g;
 
 // State
 let activeEditable: HTMLElement | null = null;
 let activeObserver: MutationObserver | null = null;
-let encryptPromptEl: HTMLElement | null = null;
-let encryptPromptCleanup: (() => void) | null = null;
-let encryptTriggerToken: string | null = null;
-let encryptTriggerIndex: number | null = null;
-let encryptTriggerEditable: HTMLElement | null = null;
 
 /**
  * Set the active editable element and observe mutations
@@ -47,118 +46,26 @@ function setActiveEditable(el: HTMLElement | null): void {
 }
 
 /**
- * Find encrypt trigger in text (last occurrence of Quack: or quack: or ___)
+ * Find the last trigger match in the text
  */
-function findEncryptTrigger(value: string): { token: string; index: number } | null {
-  const regex = new RegExp(ENCRYPT_TRIGGER_PATTERNS);
+function findTrigger(value: string): { token: string; index: number } | null {
+  const regex = new RegExp(TRIGGER_PATTERN);
   let match: RegExpExecArray | null = null;
   let current: RegExpExecArray | null;
   while ((current = regex.exec(value)) !== null) {
     match = current;
   }
   if (!match) return null;
-  return { token: match[1], index: match.index };
+  return { token: match[0], index: match.index };
 }
 
 /**
- * Clear the encrypt prompt
+ * Open the encrypt bubble at the given anchor position
  */
-export function clearEncryptPrompt(): void {
-  if (encryptPromptEl) {
-    encryptPromptEl.remove();
-  }
-  encryptPromptEl = null;
-  encryptTriggerEditable = null;
-  encryptTriggerIndex = null;
-  encryptTriggerToken = null;
-  if (encryptPromptCleanup) {
-    encryptPromptCleanup();
-    encryptPromptCleanup = null;
-  }
-}
-
-/**
- * Show the encrypt prompt card
- */
-function showEncryptPrompt(
-  editable: HTMLElement,
-  token: string,
-  index: number,
-  anchorRect: DOMRect | null
-): void {
-  if (isEncryptOverlayActive()) return;
-  const anchor = anchorRect || editable.getBoundingClientRect();
-  
-  if (
-    encryptPromptEl &&
-    encryptTriggerEditable === editable &&
-    encryptTriggerIndex === index &&
-    encryptTriggerToken === token
-  ) {
-    positionCard(anchor, encryptPromptEl);
-    return;
-  }
-
-  clearEncryptPrompt();
-  
-  const card = document.createElement('div');
-  card.className = 'quack-selection-card';
-  card.innerHTML = `
-    <button class="quack-card-btn quack-card-primary" aria-label="Encrypt with Quack">Duck it</button>
-    <button class="quack-card-btn quack-card-secondary" aria-label="Dismiss encrypt prompt">Dismiss</button>
-  `;
-
-  const handleOutside = (evt: PointerEvent) => {
-    const target = evt.target as Node | null;
-    if (target && card.contains(target)) return;
-    clearEncryptPrompt();
-  };
-  
-  const handleKeydown = (evt: KeyboardEvent) => {
-    if (evt.key === 'Escape') {
-      clearEncryptPrompt();
-    }
-  };
-  
-  document.addEventListener('pointerdown', handleOutside, true);
-  document.addEventListener('keydown', handleKeydown, true);
-  
-  encryptPromptCleanup = () => {
-    document.removeEventListener('pointerdown', handleOutside, true);
-    document.removeEventListener('keydown', handleKeydown, true);
-  };
-
-  card.querySelector('.quack-card-primary')?.addEventListener('click', () => {
-    clearEncryptPrompt();
-    openEncryptBubble('', anchor, editable).catch(err => {
-      console.error('Encrypt overlay error', err);
-    });
+function handleEncryptYes(editable: HTMLElement, anchor: DOMRect): void {
+  openEncryptBubble('', anchor, editable).catch(err => {
+    console.error('Encrypt overlay error', err);
   });
-  
-  card.querySelector('.quack-card-secondary')?.addEventListener('click', () => {
-    clearEncryptPrompt();
-  });
-
-  encryptPromptEl = card;
-  encryptTriggerEditable = editable;
-  encryptTriggerIndex = index;
-  encryptTriggerToken = token;
-  document.body.appendChild(card);
-  positionCard(anchor, card);
-}
-
-/**
- * Open secure compose (triggered by Quack://)
- */
-function openSecureCompose(): void {
-  chrome.runtime.sendMessage({
-    type: 'OPEN_SECURE_COMPOSE',
-    payload: {
-      url: window.location.href,
-    }
-  });
-  
-  showNotification('Click the Quack extension icon to compose securely');
 }
 
 /**
@@ -172,18 +79,28 @@ function handleInputUpdate(event: Event): void {
   setActiveEditable(editable);
   const value = getElementValue(editable);
 
-  // Check for Quack:// trigger (secure compose)
-  if (value.endsWith('Quack://')) {
-    showSecureComposePrompt(editable, openSecureCompose, () => {});
-  }
+  // Don't show prompt if encrypt overlay is already open
+  if (isEncryptOverlayActive()) return;
 
-  // Check for encrypt trigger (Quack: or quack: or ___)
-  const encryptMatch = findEncryptTrigger(value);
-  if (encryptMatch && !isEncryptOverlayActive()) {
-    const anchorRect = getTriggerAnchorRect(editable, encryptMatch.index, encryptMatch.token.length);
-    showEncryptPrompt(editable, encryptMatch.token, encryptMatch.index, anchorRect);
-  } else if (!encryptMatch) {
-    clearEncryptPrompt();
+  // Check for any trigger pattern
+  const triggerMatch = findTrigger(value);
+  if (triggerMatch) {
+    // Don't re-show if the prompt is already visible in the DOM
+    const existingPrompt = document.querySelector('.quack-secure-prompt');
+    if (existingPrompt) return;
+
+    const anchorRect = getTriggerAnchorRect(editable, triggerMatch.index, triggerMatch.token.length);
+    const anchor = anchorRect || editable.getBoundingClientRect();
+
+    showSecureComposePrompt(
+      editable,
+      () => handleEncryptYes(editable, anchor),
+      () => {} // "No" clicked — prompt removes itself, next trigger will work
+    );
+  } else {
+    // Trigger text was deleted — dismiss the prompt immediately
+    const existingPrompt = document.querySelector('.quack-secure-prompt');
+    if (existingPrompt) existingPrompt.remove();
   }
 
   // Update inline highlights
@@ -218,5 +135,8 @@ export function setupInputDetection(): void {
   });
 }
 
-// Register callback to clear encrypt prompt when overlay closes
-setEncryptOverlayCloseCallback(clearEncryptPrompt);
+// Clear any lingering prompt when encrypt overlay closes
+setEncryptOverlayCloseCallback(() => {
+  const prompt = document.querySelector('.quack-secure-prompt');
+  if (prompt) prompt.remove();
+});

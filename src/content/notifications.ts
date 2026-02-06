@@ -145,8 +145,8 @@ export function showSecureComposePrompt(
     onNo();
   });
   
-  // Auto-dismiss after 10 seconds
-  setTimeout(() => prompt.remove(), 10000);
+  // Auto-dismiss after 1.5 seconds of inactivity
+  setTimeout(() => prompt.remove(), 2000);
 }
 
 /**

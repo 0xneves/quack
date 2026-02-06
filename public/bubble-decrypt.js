@@ -6,6 +6,7 @@
 
 let port = null;
 let currentPlaintext = '';
+let dragging = false;
 
 // DOM Elements
 const plaintextEl = document.getElementById('plaintext');
@@ -104,4 +105,34 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && port) {
     port.postMessage({ type: 'close' });
   }
+});
+
+/**
+ * Drag support - header is the drag handle
+ */
+const header = document.querySelector('.header');
+
+header?.addEventListener('mousedown', () => {
+  dragging = true;
+  if (port) {
+    port.postMessage({ type: 'drag-start' });
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  if (dragging) {
+    dragging = false;
+    if (port) {
+      port.postMessage({ type: 'drag-end' });
+    }
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!dragging || !port) return;
+  port.postMessage({
+    type: 'drag-move',
+    deltaX: e.movementX,
+    deltaY: e.movementY,
+  });
 });
