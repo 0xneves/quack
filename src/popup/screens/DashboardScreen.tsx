@@ -342,21 +342,21 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               className="text-gray-500 hover:text-gray-700 font-medium"
               title="Open Side Panel"
             >
-              📑
+              <img src="/svg/sidebar-svgrepo-com.svg" alt="Side Panel" className="w-5 h-5 opacity-60 hover:opacity-100" />
             </button>
             {onSettings && (
               <button
                 onClick={onSettings}
                 className="text-gray-500 hover:text-gray-700 font-medium"
               >
-                ⚙️
+                <img src="/svg/gear-svgrepo-com.svg" alt="Settings" className="w-5 h-5 opacity-60 hover:opacity-100" />
               </button>
             )}
             <button
               onClick={onLock}
-              className="text-gray-500 hover:text-gray-700 font-medium"
+              className="flex items-center gap-1 text-gray-500 hover:text-gray-700 font-medium"
             >
-              🔒 Lock
+              <img src="/svg/lock-hashtag-svgrepo-com.svg" alt="Lock" className="w-5 h-5 opacity-60 hover:opacity-100" />
             </button>
           </div>
         </div>
