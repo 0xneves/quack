@@ -14,6 +14,7 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
   const [isEncrypting, setIsEncrypting] = useState(false);
   const [encrypted, setEncrypted] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<QuackGroup | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   const groups = getGroups(vaultData);
 
@@ -63,6 +64,12 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
     setSelectedGroup(null);
   }
 
+  async function copyToClipboard(text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2000);
+  }
+
   // Success screen after encryption
   if (encrypted && selectedGroup) {
     return (
@@ -87,7 +94,7 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
             <p className="text-gray-600 mb-2">
               Encrypted to group: <strong>{selectedGroup.emoji || '👥'} {selectedGroup.name}</strong>
             </p>
-            <p className="text-gray-500 text-sm mb-6">
+            <p className="text-gray-500 text-sm mb-4">
               Copied to clipboard
             </p>
 
@@ -99,10 +106,10 @@ function SecureComposeScreen({ vaultData, onBack }: SecureComposeScreenProps) {
 
             <div className="space-y-3">
               <button
-                onClick={() => navigator.clipboard.writeText(encrypted)}
+                onClick={() => copyToClipboard(encrypted)}
                 className="w-full bg-quack-500 hover:bg-quack-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200"
               >
-                📋 Copy Again
+                {copySuccess ? '✅ Copied!' : '📋 Copy Again'}
               </button>
               <button
                 onClick={handleNew}
