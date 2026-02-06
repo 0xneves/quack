@@ -123,9 +123,18 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
     case 'IMPORT_KEY':
       return await handleImportKey(message.payload as ImportKeyPayload);
       
-    // Vault
+    // Vault & Authentication
+    case 'CHECK_AUTH':
+      return handleCheckAuth();
+      
     case 'CACHE_VAULT':
       return await handleCacheVault(message.payload as { masterPassword: string });
+    
+    case 'SAVE_VAULT':
+      return await handleSaveVault(message.payload as { vaultData: VaultData });
+    
+    case 'LOCK_VAULT':
+      return await handleLockVault();
     
     case 'GET_VAULT_DATA':
       return handleGetVaultData();
@@ -150,19 +159,25 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
 
 /**
  * Check vault unlock status
+ * Source of truth: password in memory, NOT session flag alone
  */
 async function handleVaultStatus() {
+  // If no password in memory, we're not authenticated regardless of session flag
+  if (!cachedMasterPassword) {
+    await markVaultLocked();
+    return { unlocked: false };
+  }
+  
   const session = await getSession();
   
   // Check auto-lock
   if (session.unlocked && await shouldAutoLock()) {
     await markVaultLocked();
-    cachedVaultData = null;
-    cachedMasterPassword = null;
+    clearVaultCache();
     return { unlocked: false };
   }
   
-  return { unlocked: session.unlocked };
+  return { unlocked: session.unlocked && !!cachedMasterPassword };
 }
 
 /**
@@ -545,7 +560,8 @@ function handleGetVaultData() {
 }
 
 /**
- * Cache vault data in memory (from popup)
+ * Cache vault data in memory (from popup login)
+ * Returns vault data so popup doesn't need the password
  */
 async function handleCacheVault(payload: { masterPassword: string }) {
   const cacheId = Math.random().toString(36).substring(7);
@@ -559,8 +575,88 @@ async function handleCacheVault(payload: { masterPassword: string }) {
 
   const ok = await cacheVault(masterPassword);
   console.log(`🗄️ [handleCacheVault:${cacheId}] cacheVault returned: ${ok}`);
-  console.log(`🗄️ [handleCacheVault:${cacheId}] cachedVaultData now has - keys: ${cachedVaultData?.keys?.length}, groups: ${cachedVaultData?.groups?.length}`);
-  return { cached: ok };
+  
+  if (!ok || !cachedVaultData) {
+    console.log(`🗄️ [handleCacheVault:${cacheId}] ERROR: Failed to unlock vault (wrong password?)`)
+    return { cached: false, error: 'Wrong password or vault error' };
+  }
+  
+  console.log(`🗄️ [handleCacheVault:${cacheId}] SUCCESS - keys: ${cachedVaultData.keys.length}, groups: ${cachedVaultData.groups.length}`);
+  return { cached: true, vault: cachedVaultData };
+}
+
+/**
+ * CHECK_AUTH: Single source of truth for authentication
+ * If background has the password, user is authenticated.
+ * Returns vault data alongside auth status so popup has everything it needs.
+ */
+function handleCheckAuth() {
+  const authId = Math.random().toString(36).substring(7);
+  console.log(`🔐 [handleCheckAuth:${authId}] START`);
+  
+  if (!cachedMasterPassword || !cachedVaultData) {
+    console.log(`🔐 [handleCheckAuth:${authId}] NOT authenticated (password: ${!!cachedMasterPassword}, vault: ${!!cachedVaultData})`);
+    // Ensure session flag reflects reality
+    markVaultLocked().catch(console.error);
+    return { authenticated: false };
+  }
+  
+  console.log(`🔐 [handleCheckAuth:${authId}] Authenticated - keys: ${cachedVaultData.keys.length}, groups: ${cachedVaultData.groups.length}`);
+  return { authenticated: true, vault: cachedVaultData };
+}
+
+/**
+ * SAVE_VAULT: Save vault data using background's cached password
+ * Popup sends updated vault data, background handles encryption + persistence.
+ * Password NEVER leaves the background.
+ */
+async function handleSaveVault(payload: { vaultData: VaultData }) {
+  const saveId = Math.random().toString(36).substring(7);
+  console.log(`💾 [handleSaveVault:${saveId}] START`);
+  
+  if (!cachedMasterPassword) {
+    console.error(`💾 [handleSaveVault:${saveId}] NOT_AUTHENTICATED - no password in memory`);
+    return { error: 'NOT_AUTHENTICATED' };
+  }
+  
+  const { vaultData } = payload;
+  if (!vaultData) {
+    console.error(`💾 [handleSaveVault:${saveId}] No vault data provided`);
+    return { error: 'No vault data provided' };
+  }
+  
+  console.log(`💾 [handleSaveVault:${saveId}] Saving - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+  
+  try {
+    await saveVault(vaultData, cachedMasterPassword);
+    cachedVaultData = vaultData;
+    
+    console.log(`💾 [handleSaveVault:${saveId}] SUCCESS - vault saved and cache updated`);
+    
+    // Broadcast to all tabs so they can rescan
+    await broadcastVaultUpdated();
+    
+    return { success: true };
+  } catch (error) {
+    console.error(`💾 [handleSaveVault:${saveId}] FAILED:`, error);
+    return { error: (error as Error).message };
+  }
+}
+
+/**
+ * LOCK_VAULT: Secure wipe of all sensitive data from memory
+ * Clears password, decrypted vault, and session flag.
+ */
+async function handleLockVault() {
+  const lockId = Math.random().toString(36).substring(7);
+  console.log(`🔒 [handleLockVault:${lockId}] START - wiping all sensitive data`);
+  
+  cachedMasterPassword = null;
+  cachedVaultData = null;
+  await markVaultLocked();
+  
+  console.log(`🔒 [handleLockVault:${lockId}] SUCCESS - password and vault wiped from memory`);
+  return { success: true };
 }
 
 /**
@@ -628,12 +724,32 @@ export function setCachedVaultData(data: VaultData): void {
   cachedVaultData = data;
 }
 
+/**
+ * Ensure the vault is unlocked: password in memory + session flag.
+ * Password presence is the source of truth.
+ */
 async function ensureUnlocked(): Promise<boolean> {
+  // Primary check: is the password actually in memory?
+  if (!cachedMasterPassword || !cachedVaultData) {
+    await markVaultLocked();
+    return false;
+  }
+  
+  // Secondary check: session flag (might be stale)
   const session = await getSession();
   if (!session.unlocked) {
     clearVaultCache();
     return false;
   }
+  
+  // Check auto-lock
+  if (await shouldAutoLock()) {
+    clearVaultCache();
+    await markVaultLocked();
+    console.log('🔒 Auto-locked during operation');
+    return false;
+  }
+  
   return true;
 }
 

@@ -226,11 +226,14 @@ export type MessageType =
   | 'LEAVE_GROUP'
   | 'INVITE_TO_GROUP'
   | 'EXPORT_GROUP_INVITE'
-  // Vault
+  // Vault & Authentication
   | 'VAULT_STATUS'
   | 'CACHE_VAULT'
   | 'GET_VAULT_DATA'
   | 'VAULT_UPDATED'
+  | 'CHECK_AUTH'            // Ask background: "Do you have the password?"
+  | 'SAVE_VAULT'            // Send vault data to background to save (background uses cached password)
+  | 'LOCK_VAULT'            // Trigger lock: wipe password + decrypted data from memory
   // UI
   | 'OPEN_SECURE_COMPOSE'
   | 'OPEN_UNLOCK'
