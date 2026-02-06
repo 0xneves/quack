@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { VaultData } from '@/types';
 import { 
   validateExportPassword, 
   exportVault, 
   downloadExportFile 
 } from '@/storage/export';
+import { getSettings, saveSettings } from '@/storage/settings';
+
+/** Default minutes when toggling ON */
+const DEFAULT_LOCK_MINUTES = 15;
 
 interface SettingsScreenProps {
   vaultData: VaultData;
@@ -19,6 +23,21 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [autoLockTimeout, setAutoLockTimeout] = useState<number>(15);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Load current settings on mount
+  useEffect(() => {
+    getSettings().then(settings => {
+      setAutoLockTimeout(settings.autoLockTimeout);
+      setSettingsLoaded(true);
+    });
+  }, []);
+
+  async function handleAutoLockChange(value: number) {
+    setAutoLockTimeout(value);
+    await saveSettings({ autoLockTimeout: value });
+  }
 
   // Stats
   const personalKeys = vaultData.keys.filter(k => k.type === 'personal').length;
@@ -117,6 +136,84 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
           </div>
         </div>
 
+        {/* Security Section */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-4">🔒 Security</h2>
+
+          <div className="space-y-3">
+            {/* Row: label + toggle */}
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-gray-900 text-sm">Auto-Lock Timer</h3>
+
+              {settingsLoaded && (
+                <div
+                  className="relative flex items-center rounded-full cursor-pointer select-none"
+                  style={{
+                    backgroundColor: autoLockTimeout > 0 ? '#f97316' : '#d1d5db',
+                    width: '132px',
+                    height: '32px',
+                  }}
+                  onClick={() => {
+                    if (autoLockTimeout > 0) {
+                      handleAutoLockChange(0);
+                    } else {
+                      handleAutoLockChange(DEFAULT_LOCK_MINUTES);
+                    }
+                  }}
+                >
+                  {/* Sliding thumb */}
+                  <div
+                    className="absolute rounded-full bg-white shadow-md transition-all duration-300 ease-in-out flex items-center justify-center"
+                    style={{
+                      width: '50%',
+                      top: '3px',
+                      bottom: '3px',
+                      left: autoLockTimeout > 0 ? '3px' : 'calc(50% - 3px)',
+                    }}
+                  >
+                    <span className="text-xs font-bold text-gray-700">
+                      {autoLockTimeout > 0 ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+
+                  {/* Right side — minutes input (visible when ON) */}
+                  {autoLockTimeout > 0 && (
+                    <div
+                      className="absolute right-0 top-0 bottom-0 flex items-center justify-center gap-0.5"
+                      style={{ width: '50%' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={autoLockTimeout}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/\D/g, '');
+                          const num = Math.min(Number(raw) || 0, 999);
+                          setAutoLockTimeout(num);
+                        }}
+                        onBlur={() => {
+                          const final = autoLockTimeout < 1 ? DEFAULT_LOCK_MINUTES : autoLockTimeout;
+                          handleAutoLockChange(final);
+                        }}
+                        className="bg-transparent text-white font-bold text-sm text-center outline-none"
+                        style={{ width: '36px' }}
+                        maxLength={3}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-500">
+              {autoLockTimeout > 0
+                ? `Vault locks after ${autoLockTimeout} min of inactivity when the popup is closed.`
+                : 'Vault stays unlocked until you lock manually or close the browser.'}
+            </p>
+          </div>
+        </div>
+
         {/* Export/Import Section */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">💾 Backup & Restore</h2>
@@ -158,15 +255,6 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Security Info */}
-        <div className="bg-blue-50 border-l-4 border-blue-400 p-4">
-          <p className="text-blue-700 text-sm">
-            <strong>🔐 Security Note:</strong> Your export file is encrypted with AES-256-GCM 
-            using a separate export password. Choose a strong password you'll remember — 
-            without it, the backup cannot be restored.
-          </p>
         </div>
 
         {/* Version Info */}
