@@ -10,7 +10,38 @@
 
   let port = null;
   let currentCipher = '';
+  let stealthMode = false;
   const state = { dragging: false };
+  
+  // Create stealth mode toggle (inserted dynamically)
+  function createStealthRow() {
+    const existing = document.getElementById('stealth-row');
+    if (existing) return existing;
+    
+    const stealthRow = document.createElement('div');
+    stealthRow.id = 'stealth-row';
+    stealthRow.className = 'form-row';
+    stealthRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin: 4px 0 2px 0;';
+    
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = 'stealth-checkbox';
+    checkbox.style.cssText = 'cursor: pointer; width: 14px; height: 14px;';
+    checkbox.checked = stealthMode;
+    checkbox.addEventListener('change', (e) => {
+      stealthMode = e.target.checked;
+    });
+    
+    const label = document.createElement('label');
+    label.htmlFor = 'stealth-checkbox';
+    label.style.cssText = 'cursor: pointer; font-size: 13px; font-weight: 500; color: #374151; margin-left: 2px;';
+    label.textContent = '  🥷 Stealth Mode';
+    
+    stealthRow.appendChild(checkbox);
+    stealthRow.appendChild(label);
+    
+    return stealthRow;
+  }
 
   function showStatus(msg, kind = 'info') {
     statusEl.textContent = msg || '';
@@ -30,10 +61,21 @@
 
   function resetUI() {
     currentCipher = '';
+    stealthMode = false;
     encryptText.readOnly = false;
     encryptText.value = '';
     hideStatus();
-    if (keyRow) keyRow.style.display = '';
+    if (keyRow) {
+      keyRow.style.display = '';
+      // Add stealth toggle after key row
+      const stealthRow = createStealthRow();
+      if (stealthRow.parentElement !== keyRow.parentElement) {
+        keyRow.parentElement.insertBefore(stealthRow, keyRow.nextSibling);
+      }
+      stealthRow.style.display = '';
+      const checkbox = document.getElementById('stealth-checkbox');
+      if (checkbox) checkbox.checked = false;
+    }
     if (submitBtn) {
       submitBtn.style.display = '';
       submitBtn.textContent = '🦆 Duck it';
@@ -58,27 +100,65 @@
     hideBubble();
   }
 
-  function setGroups(groups) {
+  function setTargets(personalKeys, groups) {
     encryptKey.innerHTML = '';
-    if (!groups || !groups.length) {
+    
+    const hasIdentities = personalKeys && personalKeys.length > 0;
+    const hasGroups = groups && groups.length > 0;
+    
+    if (!hasIdentities && !hasGroups) {
       const opt = document.createElement('option');
       opt.value = '';
-      opt.textContent = 'No groups available';
+      opt.textContent = 'No encryption targets available';
       encryptKey.appendChild(opt);
       encryptKey.disabled = true;
-    } else {
+      return;
+    }
+    
+    // Add placeholder
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select target...';
+    encryptKey.appendChild(placeholder);
+    
+    // Add identities first (personal encryption)
+    if (hasIdentities) {
+      const identitySeparator = document.createElement('option');
+      identitySeparator.disabled = true;
+      identitySeparator.textContent = '── Identities (Personal) ──';
+      encryptKey.appendChild(identitySeparator);
+      
+      personalKeys.forEach((k) => {
+        const opt = document.createElement('option');
+        opt.value = k.id;
+        const fp = k.shortFingerprint ? ` (${k.shortFingerprint})` : '';
+        let name = k.name || 'Unnamed identity';
+        if (name.length > 16) name = name.substring(0, 16) + '...';
+        opt.textContent = `🔑 ${name}${fp}`;
+        encryptKey.appendChild(opt);
+      });
+    }
+    
+    // Add groups (shared encryption)
+    if (hasGroups) {
+      const groupSeparator = document.createElement('option');
+      groupSeparator.disabled = true;
+      groupSeparator.textContent = '── Groups (Shared) ──';
+      encryptKey.appendChild(groupSeparator);
+      
       groups.forEach((g) => {
         const opt = document.createElement('option');
         opt.value = g.id;
-        const emoji = g.emoji ? g.emoji + ' ' : '';
+        const emoji = g.emoji ? g.emoji + ' ' : '👥 ';
         const fp = g.shortFingerprint ? ` (${g.shortFingerprint})` : '';
         let name = g.name || 'Unnamed group';
-        if (name.length > 18) name = name.substring(0, 18) + '...';
+        if (name.length > 16) name = name.substring(0, 16) + '...';
         opt.textContent = `${emoji}${name}${fp}`;
         encryptKey.appendChild(opt);
       });
-      encryptKey.disabled = false;
     }
+    
+    encryptKey.disabled = false;
   }
 
   async function copyCipher(text) {
@@ -120,7 +200,7 @@
       case 'open-encrypt': {
         title.textContent = 'Encrypt';
         resetUI();
-        setGroups(data.groups || []);
+        setTargets(data.personalKeys || [], data.groups || []);
         encryptText.value = data.prefill || '';
         showBubble();
         encryptText.focus();
@@ -138,13 +218,16 @@
           encryptText.readOnly = true;
           encryptText.value = data.cipher;
 
-          // Hide group selector
+          // Hide group selector and stealth toggle
           if (keyRow) keyRow.style.display = 'none';
+          const stealthRow = document.getElementById('stealth-row');
+          if (stealthRow) stealthRow.style.display = 'none';
 
           // Auto-copy and show status
           const copied = await copyCipher(data.cipher);
+          const stealthLabel = data.stealth ? ' (🥷 stealth)' : '';
           if (copied) {
-            showStatus('Copied to clipboard!', 'success');
+            showStatus(`Copied to clipboard!${stealthLabel}`, 'success');
           } else {
             showStatus('Encrypted but copy failed. Copy manually.', 'error');
           }
@@ -214,6 +297,7 @@
       type: 'encrypt-request',
       plaintext: encryptText.value || '',
       groupId: encryptKey.value,
+      stealth: stealthMode,
     });
   });
 

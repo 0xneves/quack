@@ -24,12 +24,14 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
   const [autoLockTimeout, setAutoLockTimeout] = useState<number>(15);
+  const [stealthDecryption, setStealthDecryption] = useState<boolean>(true);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Load current settings on mount
   useEffect(() => {
     getSettings().then(settings => {
       setAutoLockTimeout(settings.autoLockTimeout);
+      setStealthDecryption(settings.stealthDecryption ?? true);
       setSettingsLoaded(true);
     });
   }, []);
@@ -37,6 +39,11 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
   async function handleAutoLockChange(value: number) {
     setAutoLockTimeout(value);
     await saveSettings({ autoLockTimeout: value });
+  }
+
+  async function handleStealthDecryptionChange(value: boolean) {
+    setStealthDecryption(value);
+    await saveSettings({ stealthDecryption: value });
   }
 
   // Stats
@@ -210,6 +217,34 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
               {autoLockTimeout > 0
                 ? `Vault locks after ${autoLockTimeout} min of inactivity when the popup is closed.`
                 : 'Vault stays unlocked until you lock manually or close the browser.'}
+            </p>
+          </div>
+
+          {/* Stealth Decryption Toggle */}
+          <div className="mt-6 pt-6 border-t border-gray-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-medium text-gray-900 text-sm">🥷 Stealth Decryption</h3>
+
+              {settingsLoaded && (
+                <button
+                  onClick={() => handleStealthDecryptionChange(!stealthDecryption)}
+                  className={`relative w-12 h-6 rounded-full transition-colors duration-200 ${
+                    stealthDecryption ? 'bg-purple-500' : 'bg-gray-300'
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                      stealthDecryption ? 'translate-x-7' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              )}
+            </div>
+
+            <p className="text-xs text-gray-500">
+              {stealthDecryption
+                ? 'Stealth messages (hidden recipient) will be decrypted by trying all your keys. Slightly slower but provides maximum privacy.'
+                : 'Stealth messages will be ignored. Enable to decrypt messages where the sender hid the recipient fingerprint.'}
             </p>
           </div>
         </div>

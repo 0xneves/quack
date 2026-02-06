@@ -127,6 +127,7 @@ export interface AppSettings {
   showNotifications: boolean;
   maxAutoDecrypts: number;       // Default: 10
   debugMode: boolean;            // Show debug info
+  stealthDecryption: boolean;    // Try all keys for stealth messages (no fingerprint)
 }
 
 export interface SessionData {
@@ -147,6 +148,18 @@ export interface SessionData {
  */
 export interface GroupMessage {
   groupFingerprint: string;      // Short fingerprint to identify which group
+  iv: string;                    // AES-GCM IV (base64)
+  ciphertext: string;            // AES-GCM encrypted message (base64)
+}
+
+/**
+ * Stealth encrypted message format:
+ * Quack://_:[iv_b64]:[ciphertext_b64]
+ * 
+ * No fingerprint - requires brute-force decryption with all keys.
+ * Hides message recipient from observers.
+ */
+export interface StealthMessage {
   iv: string;                    // AES-GCM IV (base64)
   ciphertext: string;            // AES-GCM encrypted message (base64)
 }
@@ -257,6 +270,7 @@ export interface Message<T = unknown> {
 export interface EncryptMessagePayload {
   plaintext: string;
   groupId: string;               // Now encrypts to a GROUP, not a contact
+  stealth?: boolean;             // If true, omit fingerprint (requires brute-force decrypt)
 }
 
 export interface DecryptMessagePayload {

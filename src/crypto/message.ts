@@ -15,7 +15,10 @@ import { encapsulate, decapsulate } from './kyber';
 import { 
   encryptGroupMessage, 
   decryptWithGroups, 
+  decryptWithPersonalKeys,
   isGroupMessage,
+  isStealthMessage,
+  decryptStealthMessage,
   isInvitation,
   extractQuackStrings as extractQuackStringsFromGroup
 } from './group';
@@ -34,9 +37,13 @@ const KEY_PREFIX = 'Quack://KEY:';
 // Re-export group functions for external use
 export { 
   encryptGroupMessage, 
+  encryptPersonalMessage,
   decryptWithGroups,
+  decryptWithPersonalKeys,
   parseGroupMessage,
   isGroupMessage,
+  isStealthMessage,
+  decryptStealthMessage,
   createGroupInvitation,
   parseInvitation,
   acceptInvitation,
@@ -61,23 +68,54 @@ export async function encryptMessage(
 }
 
 /**
- * Decrypt a message using available groups
- * Tries each group until one works
+ * Decrypt a message using available groups and personal keys
+ * Tries groups first, then personal keys with derived AES, then stealth mode, then legacy format
+ * 
+ * @param messageString The encrypted message
+ * @param groups All available groups
+ * @param personalKeys All available personal keys
+ * @param stealthEnabled If true, try brute-force decryption for stealth messages (default: true)
  */
 export async function decryptMessage(
   messageString: string,
   groups: QuackGroup[],
-  personalKeys?: PersonalKey[]
+  personalKeys?: PersonalKey[],
+  stealthEnabled: boolean = true
 ): Promise<{ plaintext: string; groupId?: string; keyId?: string } | null> {
-  // Try group message first (new format)
+  // Try stealth message format (Quack://_:[iv]:[ciphertext]) - requires brute force
+  if (isStealthMessage(messageString)) {
+    if (stealthEnabled) {
+      const stealthResult = await decryptStealthMessage(
+        messageString, 
+        groups, 
+        personalKeys || []
+      );
+      if (stealthResult) {
+        return stealthResult;
+      }
+    }
+    // Stealth message but decryption disabled or failed
+    return null;
+  }
+  
+  // Try group message format (Quack://[fingerprint]:[iv]:[ciphertext])
   if (isGroupMessage(messageString)) {
-    const result = await decryptWithGroups(messageString, groups);
-    if (result) {
-      return { plaintext: result.plaintext, groupId: result.group.id };
+    // Try groups first
+    const groupResult = await decryptWithGroups(messageString, groups);
+    if (groupResult) {
+      return { plaintext: groupResult.plaintext, groupId: groupResult.group.id };
+    }
+    
+    // Try personal keys with derived AES (same format, different fingerprint source)
+    if (personalKeys && personalKeys.length > 0) {
+      const personalResult = await decryptWithPersonalKeys(messageString, personalKeys);
+      if (personalResult) {
+        return { plaintext: personalResult.plaintext, keyId: personalResult.personalKey.id };
+      }
     }
   }
   
-  // Try legacy 1-to-1 format (backwards compatibility)
+  // Try legacy 1-to-1 Kyber format (backwards compatibility)
   if (messageString.startsWith(LEGACY_MESSAGE_PREFIX) && personalKeys) {
     const result = await decryptLegacyMessage(messageString, personalKeys);
     if (result) {
@@ -220,7 +258,7 @@ export async function decryptLegacyMessage(
  * Check if a string looks like a Quack encrypted message (any format)
  */
 export function isQuackMessage(text: string): boolean {
-  return isGroupMessage(text) || text.startsWith(LEGACY_MESSAGE_PREFIX);
+  return isGroupMessage(text) || isStealthMessage(text) || text.startsWith(LEGACY_MESSAGE_PREFIX);
 }
 
 /**

@@ -144,7 +144,7 @@ function handleOverlayPortMessage(kind: OverlayKind, event: MessageEvent): void 
       break;
     }
     case 'encrypt-request': {
-      handleOverlayEncryptRequest(data.plaintext ?? '', data.groupId);
+      handleOverlayEncryptRequest(data.plaintext ?? '', data.groupId, data.stealth ?? false);
       break;
     }
     case 'drag-start': {
@@ -301,16 +301,16 @@ function setupEncryptOverlayDismiss(): void {
   };
 }
 
-async function handleOverlayEncryptRequest(plaintext: string, groupId: string): Promise<void> {
+async function handleOverlayEncryptRequest(plaintext: string, groupId: string, stealth: boolean): Promise<void> {
   if (!groupId) {
-    sendOverlayMessage('encrypt', { type: 'encrypt-result', error: 'No group selected' });
+    sendOverlayMessage('encrypt', { type: 'encrypt-result', error: 'No target selected' });
     return;
   }
   
   try {
     const resp = await sendMessageSafe({
       type: 'ENCRYPT_MESSAGE',
-      payload: { plaintext, groupId },
+      payload: { plaintext, groupId, stealth },
     });
     
     if (isLockedError(resp?.error)) {
@@ -323,7 +323,7 @@ async function handleOverlayEncryptRequest(plaintext: string, groupId: string): 
       const cipher = resp.encrypted.startsWith(QUACK_PREFIX)
         ? resp.encrypted
         : `${QUACK_PREFIX}${resp.encrypted}`;
-      sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher });
+      sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher, stealth: resp.stealth });
     } else {
       sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
     }
@@ -390,10 +390,13 @@ export async function openEncryptBubble(
 ): Promise<void> {
   encryptOverlayActive = true;
   
-  const groupResponse = await sendMessageSafe({ type: 'GET_GROUPS' });
-  const groups = groupResponse.groups || [];
+  // Fetch both groups and personal keys for encryption targets
+  const keysResponse = await sendMessageSafe({ type: 'GET_KEYS' });
+  const groups = keysResponse.groups || [];
+  const personalKeys = keysResponse.personal || [];
   
-  if (!groups.length) {
+  // Need at least one encryption target (identity or group)
+  if (!groups.length && !personalKeys.length) {
     encryptOverlayActive = false;
     requestUnlock();
     return;
@@ -401,5 +404,5 @@ export async function openEncryptBubble(
   
   await showOverlay('encrypt', anchor || editable.getBoundingClientRect());
   setupEncryptOverlayDismiss();
-  sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', groups, prefill });
+  sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', groups, personalKeys, prefill });
 }

@@ -12,7 +12,6 @@
 import type { 
   Message, 
   VaultData, 
-  ContactKey,
   EncryptMessagePayload, 
   DecryptMessagePayload, 
   ImportKeyPayload,
@@ -39,13 +38,14 @@ import {
   parseKeyString, 
   exportPublicKey 
 } from '@/storage/vault';
-import { getSession, shouldAutoLock, markVaultLocked, updateLastActivity, migrateSessionToMemoryOnly } from '@/storage/settings';
+import { getSettings, getSession, shouldAutoLock, markVaultLocked, updateLastActivity, migrateSessionToMemoryOnly } from '@/storage/settings';
 import { 
-  encryptGroupMessage, 
+  encryptGroupMessage,
+  encryptPersonalMessage,
   decryptMessage,
   createGroupInvitation,
   tryAcceptInvitation,
-  encryptToContact  // Legacy support
+  encryptToContact  // Legacy support for contacts
 } from '@/crypto/message';
 
 // In-memory vault data (cleared when service worker restarts)
@@ -403,8 +403,11 @@ async function handleLeaveGroup(payload: { groupId: string }) {
 }
 
 /**
- * Encrypt message to a group (primary method)
- * Falls back to legacy contact encryption if keyId provided instead of groupId
+ * Encrypt message to a group or personal key
+ * - Groups: AES-256-GCM with shared key
+ * - Personal keys: AES-256-GCM with derived key (same size as groups)
+ * - Contacts: Legacy Kyber-based encryption
+ * - Stealth mode: Omit fingerprint for privacy (requires brute-force decrypt)
  */
 async function handleEncryptMessage(payload: EncryptMessagePayload) {
   if (!(await ensureUnlocked())) {
@@ -414,33 +417,29 @@ async function handleEncryptMessage(payload: EncryptMessagePayload) {
     throw new Error('Vault is locked');
   }
   
-  const { plaintext, groupId } = payload;
+  const { plaintext, groupId, stealth = false } = payload;
   
-  // Try as group first (new method)
+  // Try as group first
   const group = getGroupById(groupId, cachedVaultData);
   if (group) {
-    const encrypted = await encryptGroupMessage(plaintext, group);
-    return { encrypted, groupName: group.name };
+    const encrypted = await encryptGroupMessage(plaintext, group, stealth);
+    return { encrypted, groupName: group.name, stealth };
   }
   
-  // Fallback: try as key ID (legacy contact encryption)
+  // Try as key ID (personal key or contact)
   const key = getKeyById(groupId, cachedVaultData);
   if (key) {
-    // Legacy: encrypt to contact
-    const contactKey: ContactKey = isContactKey(key) 
-      ? key 
-      : {
-          id: key.id,
-          name: key.name,
-          type: 'contact' as const,
-          publicKey: key.publicKey,
-          fingerprint: key.fingerprint,
-          shortFingerprint: key.shortFingerprint,
-          createdAt: key.createdAt
-        };
+    // Personal key: use derived AES (same compact format as groups)
+    if (isPersonalKey(key)) {
+      const encrypted = await encryptPersonalMessage(plaintext, key, stealth);
+      return { encrypted, keyName: key.name, stealth };
+    }
     
-    const encrypted = await encryptToContact(plaintext, contactKey);
-    return { encrypted, keyName: key.name };
+    // Contact key: use legacy Kyber-based encryption (stealth not supported for Kyber)
+    if (isContactKey(key)) {
+      const encrypted = await encryptToContact(plaintext, key);
+      return { encrypted, keyName: key.name };
+    }
   }
   
   throw new Error('Group or key not found');
@@ -448,6 +447,7 @@ async function handleEncryptMessage(payload: EncryptMessagePayload) {
 
 /**
  * Decrypt message using groups (primary) or personal keys (legacy)
+ * Stealth messages require brute-force decryption (controlled by settings)
  */
 async function handleDecryptMessage(payload: DecryptMessagePayload) {
   if (!(await ensureUnlocked())) {
@@ -461,8 +461,12 @@ async function handleDecryptMessage(payload: DecryptMessagePayload) {
   const groups = getGroups(cachedVaultData);
   const personalKeys = getPersonalKeys(cachedVaultData);
   
+  // Check if stealth decryption is enabled in settings
+  const settings = await getSettings();
+  const stealthEnabled = settings.stealthDecryption ?? true;
+  
   // Try to decrypt with groups and personal keys
-  const result = await decryptMessage(encryptedMessage, groups, personalKeys);
+  const result = await decryptMessage(encryptedMessage, groups, personalKeys, stealthEnabled);
   
   if (result) {
     if (result.groupId) {
