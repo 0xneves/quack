@@ -117,8 +117,7 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete }: OnboardingSc
             Generate Your Identity
           </h1>
           <p className="text-gray-600 text-center mb-6 max-w-sm">
-            Your identity is a cryptographic keypair. The private key stays on your device — 
-            only the public key gets shared.
+            Your identity is a cryptographic keypair. The private key stays on your device and the public key is shared.
           </p>
           
           <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm mb-6">
