@@ -125,12 +125,12 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
 
         {plaintext && (
           <div className="bg-white rounded-lg shadow p-4 border border-green-200 overflow-hidden">
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2">
               <p className="text-xs uppercase text-gray-500 font-semibold">
                 Decrypted text
               </p>
               {decryptedWith && (
-                <p className="text-xs text-green-600">
+                <p className="text-xs text-green-600 mt-1">
                   ✓ Decrypted with: {decryptedWith}
                 </p>
               )}
