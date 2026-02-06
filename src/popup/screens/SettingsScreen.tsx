@@ -121,15 +121,15 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">📊 Vault Summary</h2>
           <div className="grid grid-cols-3 gap-4 text-center">
-            <div className="bg-purple-50 rounded-lg p-4">
+            <div className="bg-purple-50 rounded-lg p-2">
               <div className="text-2xl font-bold text-purple-600">{personalKeys}</div>
-              <div className="text-sm text-purple-700">Identity Keys</div>
+              <div className="text-sm text-purple-700">Identities</div>
             </div>
-            <div className="bg-blue-50 rounded-lg p-4">
+            <div className="bg-blue-50 rounded-lg p-2">
               <div className="text-2xl font-bold text-blue-600">{contacts}</div>
               <div className="text-sm text-blue-700">Contacts</div>
             </div>
-            <div className="bg-green-50 rounded-lg p-4">
+            <div className="bg-green-50 rounded-lg p-2">
               <div className="text-2xl font-bold text-green-600">{groups}</div>
               <div className="text-sm text-green-700">Groups</div>
             </div>
@@ -259,8 +259,8 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
 
         {/* Version Info */}
         <div className="text-center text-gray-500 text-sm">
-          <p>Quack v0.1.0</p>
-          <p className="mt-1">🦆 Post-quantum encryption for everyone</p>
+          <p>🦆 Quack! v0.1.0</p>
+          <p className="mt-1">Quack-quantum encryption for everyone</p>
         </div>
       </div>
 
