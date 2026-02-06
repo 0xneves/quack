@@ -16,6 +16,16 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete }: OnboardingSc
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedKeyString, setGeneratedKeyString] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [funnyMessage] = useState(() => {
+    const messages = [
+      "...yeah, it's massive. Just copy it! 🦆",
+      "...it keeps going. Quantum-safe keys are thicc.",
+      "...wow, still reading? Just hit copy already!",
+      "...your future self will thank you for this chonker.",
+      "...size matters when fighting quantum computers. 🔐",
+    ];
+    return messages[Math.floor(Math.random() * messages.length)];
+  });
 
   async function handleGenerateIdentity() {
     const genId = Math.random().toString(36).substring(7);
@@ -173,46 +183,50 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete }: OnboardingSc
     return (
       <div className="min-h-screen bg-gradient-to-b from-green-50 to-white p-6 flex flex-col">
         <div className="flex-1 flex flex-col items-center justify-center">
-          <div className="text-6xl mb-6">✅</div>
+          <div className="text-4xl mb-4">✅</div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2 text-center">
             Identity Created!
           </h1>
-          <p className="text-gray-600 text-center mb-6 max-w-sm">
-            Share your public key with friends so they can invite you to encrypted groups.
+          <p className="text-gray-600 text-center mb-4 max-w-sm">
+            Share this key so friends can invite you to groups.
           </p>
           
           <div className="bg-white rounded-xl shadow-lg p-6 w-full max-w-sm mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Your Public Key
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-gray-700">
+                Your Public Key
+              </label>
+              <button
+                onClick={copyToClipboard}
+                className="text-sm text-quack-500 hover:text-quack-600 font-medium transition duration-200"
+              >
+                {copySuccess ? '✅ Copied!' : '📋 Copy'}
+              </button>
+            </div>
             <div className="bg-gray-100 p-3 rounded-lg mb-3">
               <p className="font-mono text-xs break-all text-gray-700">
-                {generatedKeyString}
+                {generatedKeyString?.substring(0, 115)}...
+              </p>
+              <p className="text-sm text-gray-500 mt-2 italic">
+                {funnyMessage}
               </p>
             </div>
             <button
-              onClick={copyToClipboard}
+              onClick={() => setStep('complete')}
               className="w-full bg-quack-500 hover:bg-quack-600 text-white font-bold py-3 px-4 rounded-lg transition duration-200"
             >
-              {copySuccess ? '✅ Copied!' : '📋 Copy Public Key'}
+              Continue →
             </button>
           </div>
 
           {/* Info box */}
-          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 max-w-sm">
+          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-2 max-w-sm">
             <p className="text-blue-700 text-sm">
               <strong>💡 How to share:</strong> Send this key to friends via a secure channel 
               (Signal, in-person, etc.). They'll add you as a contact and can then invite you 
               to encrypted groups.
             </p>
           </div>
-
-          <button
-            onClick={() => setStep('complete')}
-            className="w-full max-w-sm bg-quack-500 hover:bg-quack-600 text-white font-bold py-4 px-6 rounded-xl transition duration-200 shadow-lg"
-          >
-            Continue →
-          </button>
         </div>
       </div>
     );
