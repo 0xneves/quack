@@ -175,8 +175,33 @@ function App() {
     setScreen('import');
   }
 
-  function handleImportFresh() {
-    setScreen('import-fresh');
+  async function handleSetupAndImport(password: string) {
+    const setupId = Math.random().toString(36).substring(7);
+    console.log(`🎬 [handleSetupAndImport:${setupId}] START`);
+    
+    try {
+      console.log(`🎬 [handleSetupAndImport:${setupId}] Creating vault...`);
+      await createVault(password);
+      
+      console.log(`🎬 [handleSetupAndImport:${setupId}] Setting master password in state`);
+      setMasterPassword(password);
+      
+      const emptyVault: VaultData = { keys: [], groups: [] };
+      console.log(`🎬 [handleSetupAndImport:${setupId}] Setting empty vault in state`);
+      setVaultData(emptyVault);
+      
+      console.log(`🎬 [handleSetupAndImport:${setupId}] Marking vault unlocked`);
+      await markVaultUnlocked();
+      
+      console.log(`🎬 [handleSetupAndImport:${setupId}] Caching in background...`);
+      await cacheVaultInBackground(emptyVault, password);
+      
+      console.log(`🎬 [handleSetupAndImport:${setupId}] SUCCESS - going to import-fresh`);
+      setScreen('import-fresh');
+    } catch (error) {
+      console.error(`🎬 [handleSetupAndImport:${setupId}] FAILED:`, error);
+      alert('Failed to create vault. Please try again.');
+    }
   }
 
   function handleBackToDashboard() {
@@ -248,7 +273,7 @@ function App() {
   }
 
   if (screen === 'setup') {
-    return <SetupScreen onSetup={handleSetup} />;
+    return <SetupScreen onSetup={handleSetup} onSetupAndImport={handleSetupAndImport} />;
   }
 
   if (screen === 'login') {
@@ -279,7 +304,6 @@ function App() {
         vaultData={vaultData}
         onVaultUpdate={handleVaultUpdate}
         onComplete={handleOnboardingComplete}
-        onImport={handleImportFresh}
       />
     );
   }
