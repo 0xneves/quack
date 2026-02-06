@@ -325,7 +325,11 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <span className="text-3xl">🦆</span>
+            <img 
+              src="/svg/logo-quack-green.svg" 
+              alt="Quack" 
+              className="w-10 h-10"
+            />
             <h1 className="text-2xl font-bold text-gray-900">Quack</h1>
           </div>
           <div className="flex items-center gap-3">
