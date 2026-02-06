@@ -41,7 +41,7 @@ function OnboardingScreen({ vaultData, onVaultUpdate, onComplete, onImport }: On
       console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] Updated vault - keys: ${updatedVault.keys.length}, groups: ${updatedVault.groups.length}`);
       
       console.log(`🔑 [OnboardingScreen.handleGenerateIdentity:${genId}] Calling onVaultUpdate...`);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       
       // Get the public key string for sharing
       const keyString = exportPublicKey(key);
