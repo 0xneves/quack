@@ -53,6 +53,15 @@ function App() {
           console.log(`🚀 [initialize:${initId}] Cached vault - keys: ${vault.keys?.length}, groups: ${vault.groups?.length}`);
           console.log(`🚀 [initialize:${initId}] Cached group IDs:`, vault.groups?.map(g => ({ id: g.id, name: g.name })));
           setVaultData(vault);
+          
+          // Check if user has completed onboarding (has at least one personal key)
+          const hasPersonalKey = vault.keys?.some(k => k.type === 'personal') ?? false;
+          if (!hasPersonalKey) {
+            console.log(`🚀 [initialize:${initId}] No personal key found, going to onboarding`);
+            setScreen('onboarding');
+            return;
+          }
+          
           setScreen('dashboard');
           return;
         } else {
@@ -119,6 +128,14 @@ function App() {
       // Cache vault in background script
       console.log(`🔐 [handleLogin:${loginId}] Caching in background...`);
       await cacheVaultInBackground(data, password);
+      
+      // Check if user has completed onboarding (has at least one personal key)
+      const hasPersonalKey = data.keys?.some(k => k.type === 'personal') ?? false;
+      if (!hasPersonalKey) {
+        console.log(`🔐 [handleLogin:${loginId}] SUCCESS - no personal key, going to onboarding`);
+        setScreen('onboarding');
+        return;
+      }
       
       console.log(`🔐 [handleLogin:${loginId}] SUCCESS - going to dashboard`);
       setScreen('dashboard');
