@@ -124,7 +124,7 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
         )}
 
         {plaintext && (
-          <div className="bg-white rounded-lg shadow p-4 border border-green-200">
+          <div className="bg-white rounded-lg shadow p-4 border border-green-200 overflow-hidden">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs uppercase text-gray-500 font-semibold">
                 Decrypted text
@@ -135,9 +135,11 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
                 </p>
               )}
             </div>
-            <p className="text-gray-900 whitespace-pre-wrap break-words">
-              {plaintext}
-            </p>
+            <div className="max-h-64 overflow-y-auto">
+              <p className="text-gray-900 whitespace-pre-wrap break-all">
+                {plaintext}
+              </p>
+            </div>
           </div>
         )}
 
