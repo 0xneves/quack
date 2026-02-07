@@ -10,7 +10,7 @@ import { isLockedError, requestUnlock, sendMessageSafe } from './utils';
 // Overlay dimensions
 const OVERLAY_WIDTH = 340;
 const OVERLAY_HEIGHT = 260;
-const OVERLAY_MAX_HEIGHT = 420;
+const OVERLAY_MAX_HEIGHT = 520;
 const OVERLAY_MIN_HEIGHT = 180;
 const OVERLAY_MARGIN = 12;
 
@@ -144,7 +144,7 @@ function handleOverlayPortMessage(kind: OverlayKind, event: MessageEvent): void 
       break;
     }
     case 'encrypt-request': {
-      handleOverlayEncryptRequest(data.plaintext ?? '', data.keyId);
+      handleOverlayEncryptRequest(data.plaintext ?? '', data.groupId, data.stealth ?? false);
       break;
     }
     case 'drag-start': {
@@ -301,16 +301,16 @@ function setupEncryptOverlayDismiss(): void {
   };
 }
 
-async function handleOverlayEncryptRequest(plaintext: string, keyId: string): Promise<void> {
-  if (!keyId) {
-    sendOverlayMessage('encrypt', { type: 'encrypt-result', error: 'No key selected' });
+async function handleOverlayEncryptRequest(plaintext: string, groupId: string, stealth: boolean): Promise<void> {
+  if (!groupId) {
+    sendOverlayMessage('encrypt', { type: 'encrypt-result', error: 'No target selected' });
     return;
   }
   
   try {
     const resp = await sendMessageSafe({
       type: 'ENCRYPT_MESSAGE',
-      payload: { plaintext, keyId },
+      payload: { plaintext, groupId, stealth },
     });
     
     if (isLockedError(resp?.error)) {
@@ -323,7 +323,7 @@ async function handleOverlayEncryptRequest(plaintext: string, keyId: string): Pr
       const cipher = resp.encrypted.startsWith(QUACK_PREFIX)
         ? resp.encrypted
         : `${QUACK_PREFIX}${resp.encrypted}`;
-      sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher });
+      sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', cipher, stealth: resp.stealth });
     } else {
       sendOverlayMessage('encrypt', { quackOverlay: true, type: 'encrypt-result', error: 'Encryption failed' });
     }
@@ -390,10 +390,13 @@ export async function openEncryptBubble(
 ): Promise<void> {
   encryptOverlayActive = true;
   
-  const keyResponse = await sendMessageSafe({ type: 'GET_KEYS' });
-  const keys = keyResponse.keys || [];
+  // Fetch both groups and personal keys for encryption targets
+  const keysResponse = await sendMessageSafe({ type: 'GET_KEYS' });
+  const groups = keysResponse.groups || [];
+  const personalKeys = keysResponse.personal || [];
   
-  if (!keys.length) {
+  // Need at least one encryption target (identity or group)
+  if (!groups.length && !personalKeys.length) {
     encryptOverlayActive = false;
     requestUnlock();
     return;
@@ -401,5 +404,5 @@ export async function openEncryptBubble(
   
   await showOverlay('encrypt', anchor || editable.getBoundingClientRect());
   setupEncryptOverlayDismiss();
-  sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', keys, prefill });
+  sendOverlayMessage('encrypt', { quackOverlay: true, type: 'open-encrypt', groups, personalKeys, prefill });
 }

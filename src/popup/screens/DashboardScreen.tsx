@@ -20,6 +20,7 @@ import {
 } from '@/storage/vault';
 import { createGroupInvitation, parseInvitation, acceptInvitation } from '@/crypto/group';
 import { formatDate } from '@/utils/helpers';
+import { GROUP_EMOJIS } from '@/utils/constants';
 
 interface DashboardScreenProps {
   vaultData: VaultData;
@@ -33,9 +34,6 @@ interface DashboardScreenProps {
 
 type TabType = 'identity' | 'contacts' | 'groups';
 type ModalType = 'newIdentity' | 'addContact' | 'keyDetails' | 'newGroup' | 'groupDetails' | 'inviteToGroup' | 'joinGroup' | null;
-
-// Common emoji options for groups
-const GROUP_EMOJIS = ['🦆', '🔐', '👥', '🏠', '💼', '🎮', '🎵', '📚', '🌟', '💬', '🔒', '🛡️'];
 
 function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecrypt, onConnect, onSettings }: DashboardScreenProps) {
   const [activeTab, setActiveTab] = useState<TabType>('groups');
@@ -71,7 +69,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
     try {
       const key = await generatePersonalKey(newKeyName);
       const updatedVault = await addKeyToVault(key, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setNewKeyName('');
       setModal(null);
     } catch (error) {
@@ -107,7 +105,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
     try {
       const contact = await createContactKey(newKeyName, parsed.publicKey);
       const updatedVault = await addKeyToVault(contact, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setNewKeyName('');
       setImportKeyString('');
       setModal(null);
@@ -129,7 +127,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
 
     try {
       const updatedVault = await removeKeyFromVault(keyId, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setSelectedKey(null);
       setModal(null);
     } catch (error) {
@@ -143,6 +141,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
   // ============================================================================
 
   async function handleCreateGroup() {
+    const createId = Math.random().toString(36).substring(7);
+    console.log(`🆕 [handleCreateGroup:${createId}] START - name: "${newGroupName}"`);
+    
     if (!newGroupName.trim()) {
       alert('Please enter a group name');
       return;
@@ -151,20 +152,33 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
     setIsGenerating(true);
     
     try {
+      console.log(`🆕 [handleCreateGroup:${createId}] Current vaultData - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+      console.log(`🆕 [handleCreateGroup:${createId}] Existing group IDs:`, vaultData.groups.map(g => ({ id: g.id, name: g.name })));
+      
       const primaryKey = getPrimaryPersonalKey(vaultData);
+      console.log(`🆕 [handleCreateGroup:${createId}] Creating group with createGroup()...`);
       const group = await createGroup(
         newGroupName,
         newGroupEmoji,
         undefined,
         primaryKey?.fingerprint
       );
+      console.log(`🆕 [handleCreateGroup:${createId}] Created group - id: ${group.id}, name: ${group.name}`);
+      
+      console.log(`🆕 [handleCreateGroup:${createId}] Adding to vault with addGroupToVault()...`);
       const updatedVault = await addGroupToVault(group, vaultData);
-      onVaultUpdate(updatedVault);
+      console.log(`🆕 [handleCreateGroup:${createId}] Updated vault - keys: ${updatedVault.keys.length}, groups: ${updatedVault.groups.length}`);
+      console.log(`🆕 [handleCreateGroup:${createId}] Updated group IDs:`, updatedVault.groups.map(g => ({ id: g.id, name: g.name })));
+      
+      console.log(`🆕 [handleCreateGroup:${createId}] Calling onVaultUpdate()...`);
+      await onVaultUpdate(updatedVault);
+      
       setNewGroupName('');
       setNewGroupEmoji('🦆');
       setModal(null);
+      console.log(`🆕 [handleCreateGroup:${createId}] SUCCESS`);
     } catch (error: any) {
-      console.error('Failed to create group:', error);
+      console.error(`🆕 [handleCreateGroup:${createId}] FAILED:`, error);
       alert(error.message || 'Failed to create group. Please try again.');
     } finally {
       setIsGenerating(false);
@@ -178,7 +192,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
 
     try {
       const updatedVault = await removeGroupFromVault(groupId, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setSelectedGroup(null);
       setModal(null);
     } catch (error) {
@@ -257,7 +271,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
 
       const group = await createGroupFromInvitation(payload);
       const updatedVault = await addGroupToVault(group, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setImportKeyString('');
       setModal(null);
       alert(`Successfully joined "${payload.groupName}"! 🎉`);
@@ -309,23 +323,38 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <span className="text-3xl">🦆</span>
+            <img 
+              src="/svg/logo-quack-green.svg" 
+              alt="Quack" 
+              className="w-10 h-10"
+            />
             <h1 className="text-2xl font-bold text-gray-900">Quack</h1>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                chrome.windows.getCurrent().then(win => {
+                  if (win.id) chrome.sidePanel.open({ windowId: win.id });
+                });
+              }}
+              className="text-gray-500 hover:text-gray-700 font-medium"
+              title="Open Side Panel"
+            >
+              <img src="/svg/sidebar-svgrepo-com.svg" alt="Side Panel" className="w-5 h-5 opacity-60 hover:opacity-100" />
+            </button>
             {onSettings && (
               <button
                 onClick={onSettings}
                 className="text-gray-500 hover:text-gray-700 font-medium"
               >
-                ⚙️
+                <img src="/svg/gear-svgrepo-com.svg" alt="Settings" className="w-5 h-5 opacity-60 hover:opacity-100" />
               </button>
             )}
             <button
               onClick={onLock}
-              className="text-gray-500 hover:text-gray-700 font-medium"
+              className="flex items-center gap-1 text-gray-500 hover:text-gray-700 font-medium"
             >
-              🔒 Lock
+              <img src="/svg/lock-hashtag-svgrepo-com.svg" alt="Lock" className="w-5 h-5 opacity-60 hover:opacity-100" />
             </button>
           </div>
         </div>
@@ -350,7 +379,7 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
             onClick={onConnect}
             className="w-full bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold py-2 px-4 rounded-lg transition duration-200"
           >
-            🤝 Connect with Someone
+            🤝 Need help connecting?
           </button>
         )}
       </div>
@@ -420,23 +449,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">👥</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No groups yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Create a group to start sharing encrypted messages, or join an existing group with an invitation.
                 </p>
-                <div className="flex gap-3 justify-center">
-                  <button
-                    onClick={() => { setImportKeyString(''); setModal('joinGroup'); }}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-6 py-2 rounded-lg font-medium transition duration-200"
-                  >
-                    📩 Join Group
-                  </button>
-                  <button
-                    onClick={() => setModal('newGroup')}
-                    className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                  >
-                    + Create Group
-                  </button>
-                </div>
               </div>
             ) : (
               <div className="space-y-3">
@@ -490,15 +505,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">🔑</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No identity yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Generate your identity key so others can invite you to groups securely.
                 </p>
-                <button
-                  onClick={() => setModal('newIdentity')}
-                  className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                >
-                  Generate Identity
-                </button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -549,15 +558,9 @@ function DashboardScreen({ vaultData, onVaultUpdate, onLock, onCompose, onDecryp
               <div className="bg-white rounded-lg shadow p-8 text-center">
                 <div className="text-5xl mb-4">📇</div>
                 <h3 className="text-lg font-bold text-gray-900 mb-2">No contacts yet</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600">
                   Add contacts by importing their public key (Quack://KEY:...) so you can invite them to groups.
                 </p>
-                <button
-                  onClick={() => setModal('addContact')}
-                  className="bg-quack-500 hover:bg-quack-600 text-white px-6 py-2 rounded-lg font-medium transition duration-200"
-                >
-                  Add Contact
-                </button>
               </div>
             ) : (
               <div className="space-y-3">

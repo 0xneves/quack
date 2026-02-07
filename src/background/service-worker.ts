@@ -12,7 +12,6 @@
 import type { 
   Message, 
   VaultData, 
-  ContactKey,
   EncryptMessagePayload, 
   DecryptMessagePayload, 
   ImportKeyPayload,
@@ -39,13 +38,14 @@ import {
   parseKeyString, 
   exportPublicKey 
 } from '@/storage/vault';
-import { getSession, shouldAutoLock, markVaultLocked, migrateSessionToMemoryOnly } from '@/storage/settings';
+import { getSettings, getSession, shouldAutoLock, markVaultLocked, updateLastActivity, migrateSessionToMemoryOnly } from '@/storage/settings';
 import { 
-  encryptGroupMessage, 
+  encryptGroupMessage,
+  encryptPersonalMessage,
   decryptMessage,
   createGroupInvitation,
   tryAcceptInvitation,
-  encryptToContact  // Legacy support
+  encryptToContact  // Legacy support for contacts
 } from '@/crypto/message';
 
 // In-memory vault data (cleared when service worker restarts)
@@ -123,9 +123,21 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
     case 'IMPORT_KEY':
       return await handleImportKey(message.payload as ImportKeyPayload);
       
-    // Vault
+    // Vault & Authentication
+    case 'CHECK_AUTH':
+      return handleCheckAuth();
+      
     case 'CACHE_VAULT':
       return await handleCacheVault(message.payload as { masterPassword: string });
+    
+    case 'SAVE_VAULT':
+      return await handleSaveVault(message.payload as { vaultData: VaultData });
+    
+    case 'LOCK_VAULT':
+      return await handleLockVault();
+    
+    case 'UPDATE_ACTIVITY':
+      return await handleUpdateActivity();
     
     case 'GET_VAULT_DATA':
       return handleGetVaultData();
@@ -135,6 +147,13 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
       
     case 'OPEN_UNLOCK':
       return await openUnlockWindow();
+    
+    // Side panel sync messages - just acknowledge, actual handling is in side panel
+    case 'SIDEPANEL_SYNC':
+    case 'SIDEPANEL_UPDATE':
+    case 'SIDEPANEL_OPENED':
+    case 'SIDEPANEL_CLOSED':
+      return { success: true };
       
     default:
       throw new Error(`Unknown message type: ${message.type}`);
@@ -143,19 +162,25 @@ async function handleMessage(message: Message, sender: chrome.runtime.MessageSen
 
 /**
  * Check vault unlock status
+ * Source of truth: password in memory, NOT session flag alone
  */
 async function handleVaultStatus() {
+  // If no password in memory, we're not authenticated regardless of session flag
+  if (!cachedMasterPassword) {
+    await markVaultLocked();
+    return { unlocked: false };
+  }
+  
   const session = await getSession();
   
   // Check auto-lock
   if (session.unlocked && await shouldAutoLock()) {
     await markVaultLocked();
-    cachedVaultData = null;
-    cachedMasterPassword = null;
+    clearVaultCache();
     return { unlocked: false };
   }
   
-  return { unlocked: session.unlocked };
+  return { unlocked: session.unlocked && !!cachedMasterPassword };
 }
 
 /**
@@ -378,8 +403,11 @@ async function handleLeaveGroup(payload: { groupId: string }) {
 }
 
 /**
- * Encrypt message to a group (primary method)
- * Falls back to legacy contact encryption if keyId provided instead of groupId
+ * Encrypt message to a group or personal key
+ * - Groups: AES-256-GCM with shared key
+ * - Personal keys: AES-256-GCM with derived key (same size as groups)
+ * - Contacts: Legacy Kyber-based encryption
+ * - Stealth mode: Omit fingerprint for privacy (requires brute-force decrypt)
  */
 async function handleEncryptMessage(payload: EncryptMessagePayload) {
   if (!(await ensureUnlocked())) {
@@ -389,33 +417,29 @@ async function handleEncryptMessage(payload: EncryptMessagePayload) {
     throw new Error('Vault is locked');
   }
   
-  const { plaintext, groupId } = payload;
+  const { plaintext, groupId, stealth = false } = payload;
   
-  // Try as group first (new method)
+  // Try as group first
   const group = getGroupById(groupId, cachedVaultData);
   if (group) {
-    const encrypted = await encryptGroupMessage(plaintext, group);
-    return { encrypted, groupName: group.name };
+    const encrypted = await encryptGroupMessage(plaintext, group, stealth);
+    return { encrypted, groupName: group.name, stealth };
   }
   
-  // Fallback: try as key ID (legacy contact encryption)
+  // Try as key ID (personal key or contact)
   const key = getKeyById(groupId, cachedVaultData);
   if (key) {
-    // Legacy: encrypt to contact
-    const contactKey: ContactKey = isContactKey(key) 
-      ? key 
-      : {
-          id: key.id,
-          name: key.name,
-          type: 'contact' as const,
-          publicKey: key.publicKey,
-          fingerprint: key.fingerprint,
-          shortFingerprint: key.shortFingerprint,
-          createdAt: key.createdAt
-        };
+    // Personal key: use derived AES (same compact format as groups)
+    if (isPersonalKey(key)) {
+      const encrypted = await encryptPersonalMessage(plaintext, key, stealth);
+      return { encrypted, keyName: key.name, stealth };
+    }
     
-    const encrypted = await encryptToContact(plaintext, contactKey);
-    return { encrypted, keyName: key.name };
+    // Contact key: use legacy Kyber-based encryption (stealth not supported for Kyber)
+    if (isContactKey(key)) {
+      const encrypted = await encryptToContact(plaintext, key);
+      return { encrypted, keyName: key.name };
+    }
   }
   
   throw new Error('Group or key not found');
@@ -423,6 +447,7 @@ async function handleEncryptMessage(payload: EncryptMessagePayload) {
 
 /**
  * Decrypt message using groups (primary) or personal keys (legacy)
+ * Stealth messages require brute-force decryption (controlled by settings)
  */
 async function handleDecryptMessage(payload: DecryptMessagePayload) {
   if (!(await ensureUnlocked())) {
@@ -436,8 +461,12 @@ async function handleDecryptMessage(payload: DecryptMessagePayload) {
   const groups = getGroups(cachedVaultData);
   const personalKeys = getPersonalKeys(cachedVaultData);
   
+  // Check if stealth decryption is enabled in settings
+  const settings = await getSettings();
+  const stealthEnabled = settings.stealthDecryption ?? true;
+  
   // Try to decrypt with groups and personal keys
-  const result = await decryptMessage(encryptedMessage, groups, personalKeys);
+  const result = await decryptMessage(encryptedMessage, groups, personalKeys, stealthEnabled);
   
   if (result) {
     if (result.groupId) {
@@ -523,40 +552,157 @@ async function handleImportKey(payload: ImportKeyPayload) {
  * Return cached vault data for popup without re-login
  */
 function handleGetVaultData() {
+  const getId = Math.random().toString(36).substring(7);
+  console.log(`📦 [handleGetVaultData:${getId}] START`);
+  
   if (!cachedVaultData) {
+    console.log(`📦 [handleGetVaultData:${getId}] No cached data, returning null`);
     return { vault: null };
   }
+  
+  console.log(`📦 [handleGetVaultData:${getId}] Returning cached vault - keys: ${cachedVaultData.keys.length}, groups: ${cachedVaultData.groups.length}`);
+  console.log(`📦 [handleGetVaultData:${getId}] Cached group IDs:`, cachedVaultData.groups.map(g => ({ id: g.id, name: g.name })));
+  
   return { vault: cachedVaultData };
 }
 
 /**
- * Cache vault data in memory (from popup)
+ * Cache vault data in memory (from popup login)
+ * Returns vault data so popup doesn't need the password
  */
 async function handleCacheVault(payload: { masterPassword: string }) {
+  const cacheId = Math.random().toString(36).substring(7);
+  console.log(`🗄️ [handleCacheVault:${cacheId}] START - received CACHE_VAULT message`);
+  
   const { masterPassword } = payload;
   if (!masterPassword) {
+    console.log(`🗄️ [handleCacheVault:${cacheId}] ERROR: Missing master password`);
     return { cached: false, error: 'Missing master password' };
   }
 
   const ok = await cacheVault(masterPassword);
-  return { cached: ok };
+  console.log(`🗄️ [handleCacheVault:${cacheId}] cacheVault returned: ${ok}`);
+  
+  if (!ok || !cachedVaultData) {
+    console.log(`🗄️ [handleCacheVault:${cacheId}] ERROR: Failed to unlock vault (wrong password?)`)
+    return { cached: false, error: 'Wrong password or vault error' };
+  }
+  
+  console.log(`🗄️ [handleCacheVault:${cacheId}] SUCCESS - keys: ${cachedVaultData.keys.length}, groups: ${cachedVaultData.groups.length}`);
+  return { cached: true, vault: cachedVaultData };
+}
+
+/**
+ * CHECK_AUTH: Single source of truth for authentication
+ * If background has the password, user is authenticated.
+ * Returns vault data alongside auth status so popup has everything it needs.
+ */
+function handleCheckAuth() {
+  const authId = Math.random().toString(36).substring(7);
+  console.log(`🔐 [handleCheckAuth:${authId}] START`);
+  
+  if (!cachedMasterPassword || !cachedVaultData) {
+    console.log(`🔐 [handleCheckAuth:${authId}] NOT authenticated (password: ${!!cachedMasterPassword}, vault: ${!!cachedVaultData})`);
+    // Ensure session flag reflects reality
+    markVaultLocked().catch(console.error);
+    return { authenticated: false };
+  }
+  
+  console.log(`🔐 [handleCheckAuth:${authId}] Authenticated - keys: ${cachedVaultData.keys.length}, groups: ${cachedVaultData.groups.length}`);
+  return { authenticated: true, vault: cachedVaultData };
+}
+
+/**
+ * SAVE_VAULT: Save vault data using background's cached password
+ * Popup sends updated vault data, background handles encryption + persistence.
+ * Password NEVER leaves the background.
+ */
+async function handleSaveVault(payload: { vaultData: VaultData }) {
+  const saveId = Math.random().toString(36).substring(7);
+  console.log(`💾 [handleSaveVault:${saveId}] START`);
+  
+  if (!cachedMasterPassword) {
+    console.error(`💾 [handleSaveVault:${saveId}] NOT_AUTHENTICATED - no password in memory`);
+    return { error: 'NOT_AUTHENTICATED' };
+  }
+  
+  const { vaultData } = payload;
+  if (!vaultData) {
+    console.error(`💾 [handleSaveVault:${saveId}] No vault data provided`);
+    return { error: 'No vault data provided' };
+  }
+  
+  console.log(`💾 [handleSaveVault:${saveId}] Saving - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+  
+  try {
+    await saveVault(vaultData, cachedMasterPassword);
+    cachedVaultData = vaultData;
+    
+    console.log(`💾 [handleSaveVault:${saveId}] SUCCESS - vault saved and cache updated`);
+    
+    // Broadcast to all tabs so they can rescan
+    await broadcastVaultUpdated();
+    
+    return { success: true };
+  } catch (error) {
+    console.error(`💾 [handleSaveVault:${saveId}] FAILED:`, error);
+    return { error: (error as Error).message };
+  }
+}
+
+/**
+ * LOCK_VAULT: Secure wipe of all sensitive data from memory
+ * Clears password, decrypted vault, and session flag.
+ */
+async function handleLockVault() {
+  const lockId = Math.random().toString(36).substring(7);
+  console.log(`🔒 [handleLockVault:${lockId}] START - wiping all sensitive data`);
+  
+  cachedMasterPassword = null;
+  cachedVaultData = null;
+  await markVaultLocked();
+  
+  console.log(`🔒 [handleLockVault:${lockId}] SUCCESS - password and vault wiped from memory`);
+  return { success: true };
+}
+
+/**
+ * UPDATE_ACTIVITY: Popup heartbeat - reset auto-lock timer.
+ * Called periodically while popup is open so auto-lock doesn't trigger
+ * while the user is actively using the extension.
+ */
+async function handleUpdateActivity() {
+  if (cachedMasterPassword) {
+    await updateLastActivity();
+  }
+  return { success: true };
 }
 
 /**
  * Export functions for popup to cache vault data
  */
 export async function cacheVault(masterPassword: string): Promise<boolean> {
+  const cacheId = Math.random().toString(36).substring(7);
+  console.log(`🗄️ [cacheVault:${cacheId}] START - about to call unlockVault to re-read from storage...`);
+  console.log(`🗄️ [cacheVault:${cacheId}] BEFORE: cachedVaultData has - keys: ${cachedVaultData?.keys?.length}, groups: ${cachedVaultData?.groups?.length}`);
+  
   try {
     const vaultData = await unlockVault(masterPassword);
     if (!vaultData) {
+      console.log(`🗄️ [cacheVault:${cacheId}] unlockVault returned null`);
       return false;
     }
     
+    console.log(`🗄️ [cacheVault:${cacheId}] unlockVault returned - keys: ${vaultData.keys.length}, groups: ${vaultData.groups.length}`);
+    console.log(`🗄️ [cacheVault:${cacheId}] Group IDs from storage:`, vaultData.groups.map(g => ({ id: g.id, name: g.name })));
+    
     cachedVaultData = vaultData;
     cachedMasterPassword = masterPassword;
+    
+    console.log(`🗄️ [cacheVault:${cacheId}] AFTER: cachedVaultData now has - keys: ${cachedVaultData.keys.length}, groups: ${cachedVaultData.groups.length}`);
     return true;
   } catch (error) {
-    console.error('Failed to cache vault:', error);
+    console.error(`🗄️ [cacheVault:${cacheId}] FAILED:`, error);
     return false;
   }
 }
@@ -597,12 +743,32 @@ export function setCachedVaultData(data: VaultData): void {
   cachedVaultData = data;
 }
 
+/**
+ * Ensure the vault is unlocked: password in memory + session flag.
+ * Password presence is the source of truth.
+ */
 async function ensureUnlocked(): Promise<boolean> {
+  // Primary check: is the password actually in memory?
+  if (!cachedMasterPassword || !cachedVaultData) {
+    await markVaultLocked();
+    return false;
+  }
+  
+  // Secondary check: session flag (might be stale)
   const session = await getSession();
   if (!session.unlocked) {
     clearVaultCache();
     return false;
   }
+  
+  // Check auto-lock
+  if (await shouldAutoLock()) {
+    clearVaultCache();
+    await markVaultLocked();
+    console.log('🔒 Auto-locked during operation');
+    return false;
+  }
+  
   return true;
 }
 

@@ -77,8 +77,35 @@ export interface VaultData {
   groups: QuackGroup[];          // Shared group keys
 }
 
+/**
+ * v3 Separated Storage Model:
+ * 
+ * vault_meta - Rarely changes (only on password create/change)
+ *   Contains salt and password verification hash
+ *   Survives data corruption!
+ * 
+ * vault_data - Changes every save
+ *   Contains IV and encrypted vault data
+ *   Can be recovered from backup if corrupted
+ */
+
+export interface VaultMeta {
+  version: number;               // 3 = separated storage model
+  salt: string;                  // PBKDF2 salt (base64) - NEVER changes after creation
+  passwordHash: string;          // For quick password verification (base64)
+  createdAt: number;             // Timestamp when vault was created
+  passwordChangedAt?: number;    // Timestamp when password was last changed
+}
+
+export interface VaultDataEncrypted {
+  iv: string;                    // AES-GCM IV (base64) - new each save
+  data: string;                  // Encrypted VaultData JSON (base64)
+  savedAt: number;               // Timestamp of this save
+}
+
+// Legacy v2 format (kept for migration)
 export interface EncryptedVault {
-  version: number;               // 2 = current Kyber + Groups format
+  version: number;               // 2 = legacy Kyber + Groups format
   salt: string;                  // PBKDF2 salt (base64)
   iv: string;                    // AES-GCM IV (base64)
   data: string;                  // Encrypted JSON containing VaultData (base64)
@@ -100,6 +127,7 @@ export interface AppSettings {
   showNotifications: boolean;
   maxAutoDecrypts: number;       // Default: 10
   debugMode: boolean;            // Show debug info
+  stealthDecryption: boolean;    // Try all keys for stealth messages (no fingerprint)
 }
 
 export interface SessionData {
@@ -120,6 +148,18 @@ export interface SessionData {
  */
 export interface GroupMessage {
   groupFingerprint: string;      // Short fingerprint to identify which group
+  iv: string;                    // AES-GCM IV (base64)
+  ciphertext: string;            // AES-GCM encrypted message (base64)
+}
+
+/**
+ * Stealth encrypted message format:
+ * Quack://_:[iv_b64]:[ciphertext_b64]
+ * 
+ * No fingerprint - requires brute-force decryption with all keys.
+ * Hides message recipient from observers.
+ */
+export interface StealthMessage {
   iv: string;                    // AES-GCM IV (base64)
   ciphertext: string;            // AES-GCM encrypted message (base64)
 }
@@ -199,16 +239,27 @@ export type MessageType =
   | 'LEAVE_GROUP'
   | 'INVITE_TO_GROUP'
   | 'EXPORT_GROUP_INVITE'
-  // Vault
+  // Vault & Authentication
   | 'VAULT_STATUS'
   | 'CACHE_VAULT'
   | 'GET_VAULT_DATA'
   | 'VAULT_UPDATED'
+  | 'CHECK_AUTH'            // Ask background: "Do you have the password?"
+  | 'SAVE_VAULT'            // Send vault data to background to save (background uses cached password)
+  | 'LOCK_VAULT'            // Trigger lock: wipe password + decrypted data from memory
+  | 'UPDATE_ACTIVITY'       // Popup heartbeat: "I'm still open, reset auto-lock timer"
   // UI
   | 'OPEN_SECURE_COMPOSE'
   | 'OPEN_UNLOCK'
   | 'ENCRYPTED_MESSAGE_READY'
-  | 'SHOW_NOTIFICATION';
+  | 'SHOW_NOTIFICATION'
+  // Side Panel
+  | 'SIDEPANEL_SYNC'
+  | 'SIDEPANEL_UPDATE'
+  | 'SIDEPANEL_OPENED'
+  | 'SIDEPANEL_CLOSED'
+  | 'SIDEPANEL_DECRYPT'
+  | 'SIDEPANEL_SCROLL';
 
 export interface Message<T = unknown> {
   type: MessageType;
@@ -219,6 +270,7 @@ export interface Message<T = unknown> {
 export interface EncryptMessagePayload {
   plaintext: string;
   groupId: string;               // Now encrypts to a GROUP, not a contact
+  stealth?: boolean;             // If true, omit fingerprint (requires brute-force decrypt)
 }
 
 export interface DecryptMessagePayload {

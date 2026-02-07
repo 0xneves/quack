@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quack - Decrypted Messages</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f9fafb;
+      min-height: 100vh;
+    }
+    
+    .header {
+      background: #ea711a;
+      color: white;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    
+    .header-icon {
+      font-size: 24px;
+    }
+    
+    .header-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    
+    .header-count {
+      margin-left: auto;
+      background: rgba(255, 255, 255, 0.2);
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+    }
+    
+    .messages-list {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .message-card {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      border-left: 4px solid #ea711a;
+    }
+    
+    .message-header {
+      padding: 10px 12px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .message-key {
+      font-size: 12px;
+      color: #6b7280;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .message-actions {
+      display: flex;
+      gap: 6px;
+    }
+    
+    .action-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #6b7280;
+      transition: background 0.15s, color 0.15s;
+    }
+    
+    .action-btn:hover {
+      background: #e5e7eb;
+      color: #374151;
+    }
+    
+    .action-btn.copy {
+      color: #ea711a;
+    }
+    
+    .action-btn.copy:hover {
+      background: #fef3e7;
+    }
+    
+    .action-btn.remove {
+      color: #9ca3af;
+      font-size: 16px;
+      line-height: 1;
+      padding: 2px 6px;
+    }
+    
+    .action-btn.remove:hover {
+      background: #fee2e2;
+      color: #ef4444;
+    }
+    
+    .message-content {
+      padding: 12px;
+    }
+    
+    .message-plaintext {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #111827;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    
+    .message-cipher {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #f3f4f6;
+    }
+    
+    .cipher-preview {
+      font-size: 10px;
+      color: #9ca3af;
+      font-family: monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #6b7280;
+    }
+    
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    
+    .empty-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #374151;
+    }
+    
+    .empty-desc {
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="header-icon">🦆</span>
+    <span class="header-title">Decrypted Messages</span>
+    <span class="header-count" id="messageCount">0</span>
+  </div>
+  
+  <div class="messages-list" id="messagesList">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">🔒</div>
+      <div class="empty-title">No encrypted messages yet</div>
+      <div class="empty-desc">
+        Select text containing <strong>Quack://</strong> on the page,<br>
+        then click "Quack?" to decrypt it securely.
+      </div>
+    </div>
+  </div>
+  
+  <script src="sidepanel.js"></script>
+</body>
+</html>
