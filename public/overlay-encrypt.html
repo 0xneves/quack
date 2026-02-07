@@ -1,174 +1,235 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Quack Encrypt</title>
   <style>
-    :root { color-scheme: light; }
-    * { box-sizing: border-box; }
-    body {
+    * {
       margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: transparent;
+      overflow: hidden;
     }
+    
     .bubble {
-      position: relative;
-      width: 340px;
-      max-height: 420px;
       background: #ffffff;
-      color: #111827;
       border-radius: 12px;
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
       overflow: hidden;
       display: none;
       flex-direction: column;
-      border: none;
+      max-height: 520px;
     }
+    
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 6px 10px;
-      background: linear-gradient(120deg, #f7b267, #f79d65);
-      color: #0b0c0f;
+      padding: 10px 12px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
       cursor: grab;
       user-select: none;
-      min-height: 32px;
     }
-    .title {
-      font-weight: 700;
-      font-size: 13px;
-      letter-spacing: 0.01em;
+    
+    .header:active {
+      cursor: grabbing;
     }
-    .close-btn {
-      border: none;
-      background: rgba(0, 0, 0, 0.08);
-      width: 24px;
-      height: 24px;
-      border-radius: 7px;
-      cursor: pointer;
-      font-weight: 700;
-      color: #111827;
-      line-height: 1;
-      display: inline-flex;
+    
+    .header-left {
+      display: flex;
       align-items: center;
-      justify-content: center;
+      gap: 8px;
     }
-    .close-btn:hover { background: rgba(0, 0, 0, 0.14); }
-
-    .section {
-      padding: 10px;
+    
+    .duck-icon {
+      font-size: 18px;
+    }
+    
+    .title {
+      font-size: 12px;
+      color: #6b7280;
+      font-weight: 600;
+    }
+    
+    .close-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      color: #6b7280;
+      font-size: 16px;
+      line-height: 1;
+      transition: background 0.15s, color 0.15s;
+    }
+    
+    .close-btn:hover {
+      background: #e5e7eb;
+      color: #374151;
+    }
+    
+    .content {
+      flex: 1;
+      padding: 12px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      overflow: auto;
-      max-height: 380px;
+      gap: 10px;
+      overflow-y: auto;
     }
-
+    
     .textarea {
       width: 100%;
-      min-height: 110px;
+      min-height: 80px;
       resize: vertical;
-      border-radius: 10px;
+      border-radius: 8px;
       border: 1px solid #e5e7eb;
       padding: 10px;
       font-size: 14px;
+      line-height: 1.5;
       font-family: inherit;
+      color: #111827;
       outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
+    
     .textarea:focus {
-      border-color: #f79d65;
-      box-shadow: 0 0 0 2px rgba(247, 157, 101, 0.24);
+      border-color: #ea711a;
+      box-shadow: 0 0 0 2px rgba(234, 113, 26, 0.15);
     }
-    .row {
+    
+    .textarea:read-only {
+      background: #f9fafb;
+      color: #374151;
+      cursor: default;
+      resize: none;
+    }
+    
+    .key-row {
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    .label {
+    
+    .key-label {
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       color: #6b7280;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
+      white-space: nowrap;
     }
-    select {
+    
+    .key-select {
       flex: 1;
-      border-radius: 10px;
+      border-radius: 6px;
       border: 1px solid #e5e7eb;
-      padding: 8px 10px;
-      font-size: 14px;
+      padding: 6px 8px;
+      font-size: 13px;
+      font-family: inherit;
+      color: #111827;
       outline: none;
+      background: #ffffff;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    select:focus {
-      border-color: #f79d65;
-      box-shadow: 0 0 0 2px rgba(247, 157, 101, 0.24);
+    
+    .key-select:focus {
+      border-color: #ea711a;
+      box-shadow: 0 0 0 2px rgba(234, 113, 26, 0.15);
     }
-    .buttons {
+    
+    .status {
+      font-size: 11px;
+      color: #6b7280;
+      text-align: center;
+      display: none;
+    }
+    
+    .status.visible {
+      display: block;
+    }
+    
+    .status.error {
+      color: #ef4444;
+    }
+    
+    .status.success {
+      color: #10b981;
+    }
+    
+    .footer {
+      padding: 8px 12px;
+      border-top: 1px solid #e5e7eb;
       display: flex;
+      align-items: center;
       gap: 8px;
-      margin-top: 4px;
+      background: #f9fafb;
     }
+    
     .btn {
-      border: 1px solid transparent;
-      border-radius: 10px;
-      padding: 10px 12px;
-      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 14px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
+      font-weight: 700;
+      transition: background 0.2s, transform 0.1s;
       flex: 1;
-      transition: background 150ms ease, color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+      text-align: center;
     }
+    
+    .btn:active {
+      transform: scale(0.98);
+    }
+    
     .btn-primary {
       background: #ea711a;
-      color: #fff;
-      box-shadow: 0 12px 24px rgba(234, 113, 26, 0.22);
+      color: #ffffff;
     }
-    .btn-primary:hover { background: #db5810; }
+    
+    .btn-primary:hover {
+      background: #db5810;
+    }
+    
+    .btn-primary.copied {
+      background: #10b981;
+    }
+    
     .btn-secondary {
-      background: #fff;
+      background: #e5e7eb;
       color: #1f2937;
-      border-color: #e5e7eb;
     }
+    
     .btn-secondary:hover {
-      background: #f9fafb;
-      border-color: #f79d65;
-    }
-    .status {
-      font-size: 12px;
-      color: #6b7280;
-      margin-top: -2px;
-    }
-    .status.error { color: #b91c1c; }
-    .cipher-box {
-      background: #f9fafb;
-      border-radius: 10px;
-      padding: 8px 10px;
-      font-size: 13px;
+      background: #d1d5db;
       color: #111827;
-      min-height: 32px;
-      box-shadow: inset 0 0 0 1px #e5e7eb;
-      word-break: break-word;
     }
   </style>
 </head>
 <body>
   <div class="bubble" id="bubble">
     <div class="header" id="drag-handle">
-      <div class="title" id="bubble-title">Quack</div>
-      <button class="close-btn" id="close-btn" aria-label="Close">×</button>
+      <div class="header-left">
+        <span class="duck-icon">🦆</span>
+        <span class="title" id="bubble-title">Encrypt</span>
+      </div>
+      <button class="close-btn" id="close-btn" aria-label="Close">✕</button>
     </div>
-    <div class="section">
+    <div class="content">
       <textarea class="textarea" id="encrypt-text" placeholder="Type your message..."></textarea>
-      <div class="row">
-        <div class="label">Key</div>
-        <select id="encrypt-key"></select>
+      <div class="status" id="encrypt-status"></div>
+      <div class="key-row" id="key-row">
+        <span class="key-label">Group</span>
+        <select class="key-select" id="encrypt-key"></select>
       </div>
-      <div class="buttons">
-        <button class="btn btn-primary" id="encrypt-submit">Duck it</button>
-        <button class="btn btn-secondary" id="encrypt-cancel">Dismiss</button>
-      </div>
+    </div>
+    <div class="footer" id="footer">
+      <button class="btn btn-primary" id="encrypt-submit">🦆 Duck it</button>
+      <button class="btn btn-secondary" id="encrypt-cancel">Dismiss</button>
     </div>
   </div>
 

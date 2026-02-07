@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { vaultExists, unlockVault, createVault, saveVault } from '@/storage/vault';
-import { getSession, markVaultUnlocked, markVaultLocked } from '@/storage/settings';
+import { vaultExists, createVault } from '@/storage/vault';
+import { markVaultUnlocked } from '@/storage/settings';
 import type { VaultData } from '@/types';
 import SetupScreen from './screens/SetupScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -14,95 +14,212 @@ import ImportScreen from './screens/ImportScreen';
 
 type Screen = 'loading' | 'setup' | 'login' | 'dashboard' | 'compose' | 'decrypt' | 'onboarding' | 'connect' | 'settings' | 'import' | 'import-fresh';
 
+/**
+ * SECURITY MODEL:
+ * 
+ * - The master password ONLY lives in the background service worker memory.
+ * - The popup NEVER stores the password (no React state, no session storage).
+ * - All vault write operations go through the background via SAVE_VAULT message.
+ * - On lock: background wipes password + decrypted vault from memory.
+ * - On popup open: CHECK_AUTH asks background "do you have the password?"
+ *   - If yes: proceed (user is authenticated)
+ *   - If no: force login (regardless of session flag)
+ */
 function App() {
   const [screen, setScreen] = useState<Screen>('loading');
   const [vaultData, setVaultData] = useState<VaultData | null>(null);
-  const [masterPassword, setMasterPassword] = useState<string>('');
+  const [loginMessage, setLoginMessage] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     initialize();
   }, []);
 
+  /**
+   * Heartbeat: While popup is open, send UPDATE_ACTIVITY every 30s
+   * to reset the auto-lock timer. This prevents auto-lock from
+   * triggering while the user is actively using the extension.
+   */
+  useEffect(() => {
+    // Only send heartbeats while authenticated (not on setup/login screens)
+    if (!vaultData) return;
+
+    // Send immediately on mount (popup just opened)
+    chrome.runtime.sendMessage({ type: 'UPDATE_ACTIVITY' }).catch(() => {});
+
+    const heartbeat = setInterval(() => {
+      chrome.runtime.sendMessage({ type: 'UPDATE_ACTIVITY' }).catch(() => {});
+    }, 30_000);
+
+    return () => clearInterval(heartbeat);
+  }, [vaultData]);
+
+  // NOTE: Auto-lock only triggers when popup is closed (heartbeat prevents it
+  // while open). When popup reopens, CHECK_AUTH detects the lock and goes to
+  // login naturally. If background restarts while popup is open, the next
+  // operation returns NOT_AUTHENTICATED and forceLock() handles it smoothly.
+
+  /**
+   * Initialize: Check if background is authenticated (has password in memory).
+   * This is the ONLY source of truth for auth state.
+   */
   async function initialize() {
+    const initId = Math.random().toString(36).substring(7);
+    console.log(`🚀 [initialize:${initId}] START`);
+    
     // Check if vault exists
     const exists = await vaultExists();
+    console.log(`🚀 [initialize:${initId}] Vault exists: ${exists}`);
     
     if (!exists) {
+      console.log(`🚀 [initialize:${initId}] No vault, going to setup`);
       setScreen('setup');
       return;
     }
     
-    // Check if already unlocked
-    const session = await getSession();
-    if (session.unlocked) {
-      // Try to pull cached vault data from background (no password prompt)
-      try {
-        const resp = await chrome.runtime.sendMessage({ type: 'GET_VAULT_DATA' });
-        if (resp?.vault) {
-          setVaultData(resp.vault as VaultData);
-          setScreen('dashboard');
+    // Ask background: "Do you have the password?"
+    // This is the source of truth - NOT the session flag
+    try {
+      console.log(`🚀 [initialize:${initId}] Checking auth with background...`);
+      const resp = await chrome.runtime.sendMessage({ type: 'CHECK_AUTH' });
+      
+      if (resp?.authenticated && resp?.vault) {
+        const vault = resp.vault as VaultData;
+        console.log(`🚀 [initialize:${initId}] Authenticated - keys: ${vault.keys?.length}, groups: ${vault.groups?.length}`);
+        setVaultData(vault);
+        
+        // Check if user has completed onboarding
+        const hasPersonalKey = vault.keys?.some(k => k.type === 'personal') ?? false;
+        if (!hasPersonalKey) {
+          console.log(`🚀 [initialize:${initId}] No personal key, going to onboarding`);
+          setScreen('onboarding');
           return;
         }
-      } catch (e) {
-        console.warn('Could not retrieve cached vault, fallback to login', e);
+        
+        setScreen('dashboard');
+        return;
       }
+      
+      console.log(`🚀 [initialize:${initId}] Not authenticated, going to login`);
+    } catch (e) {
+      console.warn(`🚀 [initialize:${initId}] Auth check failed, going to login`, e);
     }
+    
     setScreen('login');
   }
 
+  /**
+   * Setup: Create new vault, then cache password in background.
+   * Password is used briefly here for vault creation, then handed to background.
+   */
   async function handleSetup(password: string) {
+    const setupId = Math.random().toString(36).substring(7);
+    console.log(`🎬 [handleSetup:${setupId}] START`);
+    
     try {
+      // Create vault on disk
+      console.log(`🎬 [handleSetup:${setupId}] Creating vault...`);
       await createVault(password);
-      setMasterPassword(password);
+      
+      // Mark session as unlocked
+      await markVaultUnlocked();
+      
+      // Cache password in background (background becomes the password holder)
+      console.log(`🎬 [handleSetup:${setupId}] Caching password in background...`);
+      const resp = await chrome.runtime.sendMessage({
+        type: 'CACHE_VAULT',
+        payload: { masterPassword: password },
+      });
+      
+      if (!resp?.cached) {
+        throw new Error('Failed to cache vault in background');
+      }
+      
       const emptyVault: VaultData = { keys: [], groups: [] };
       setVaultData(emptyVault);
-      await markVaultUnlocked();
-      await cacheVaultInBackground(emptyVault, password);
-      // New vault = needs onboarding
+      
+      console.log(`🎬 [handleSetup:${setupId}] SUCCESS - going to onboarding`);
       setScreen('onboarding');
     } catch (error) {
-      console.error('Setup failed:', error);
+      console.error(`🎬 [handleSetup:${setupId}] FAILED:`, error);
       alert('Failed to create vault. Please try again.');
     }
   }
 
+  /**
+   * Login: Send password to background, background decrypts + caches everything.
+   * Password NEVER stored in popup state.
+   */
   async function handleLogin(password: string) {
+    const loginId = Math.random().toString(36).substring(7);
+    console.log(`🔐 [handleLogin:${loginId}] START`);
+    setLoginMessage(undefined); // Clear any "session expired" message
+    
     try {
-      const data = await unlockVault(password);
-      if (!data) {
+      // Send password to background - it handles decryption and caching
+      const resp = await chrome.runtime.sendMessage({
+        type: 'CACHE_VAULT',
+        payload: { masterPassword: password },
+      });
+      
+      if (!resp?.cached || !resp?.vault) {
+        console.log(`🔐 [handleLogin:${loginId}] Background returned cached=${resp?.cached}`);
         alert('Incorrect password');
         return;
       }
       
-      setMasterPassword(password);
-      setVaultData(data);
+      const vault = resp.vault as VaultData;
+      console.log(`🔐 [handleLogin:${loginId}] Background cached vault - keys: ${vault.keys.length}, groups: ${vault.groups.length}`);
+      
+      // Mark session as unlocked
       await markVaultUnlocked();
       
-      // Cache vault in background script
-      await cacheVaultInBackground(data, password);
+      // Set local display copy (password stays in background only)
+      setVaultData(vault);
       
+      // Check if user has completed onboarding
+      const hasPersonalKey = vault.keys?.some(k => k.type === 'personal') ?? false;
+      if (!hasPersonalKey) {
+        console.log(`🔐 [handleLogin:${loginId}] SUCCESS - going to onboarding`);
+        setScreen('onboarding');
+        return;
+      }
+      
+      console.log(`🔐 [handleLogin:${loginId}] SUCCESS - going to dashboard`);
       setScreen('dashboard');
     } catch (error) {
-      console.error('Login failed:', error);
+      console.error(`🔐 [handleLogin:${loginId}] FAILED:`, error);
       alert('Failed to unlock vault. Please try again.');
     }
   }
 
-  async function cacheVaultInBackground(_data: VaultData, _password: string) {
+  /**
+   * Lock: Tell background to wipe password + decrypted data.
+   * Clear local display copy. Force login.
+   */
+  async function handleLock() {
+    console.log(`🔒 [handleLock] Locking vault...`);
+    
     try {
-      await chrome.runtime.sendMessage({
-        type: 'CACHE_VAULT',
-        payload: { masterPassword: _password },
-      });
-    } catch (err) {
-      console.error('Failed to cache vault in background', err);
+      await chrome.runtime.sendMessage({ type: 'LOCK_VAULT' });
+    } catch (e) {
+      console.warn('🔒 [handleLock] Lock message failed:', e);
     }
+    
+    // Clear local display copy
+    setVaultData(null);
+    setScreen('login');
+    console.log(`🔒 [handleLock] Vault locked, all sensitive data wiped`);
   }
 
-  async function handleLock() {
-    await markVaultLocked();
+  /**
+   * Force lock: Called when background reports NOT_AUTHENTICATED.
+   * This handles the case where background lost its password (worker restart, etc.)
+   * Navigates smoothly to login with a message - no alert().
+   */
+  function forceLock(reason?: string) {
+    console.warn('🔒 [forceLock] Session expired - forcing lock');
     setVaultData(null);
-    setMasterPassword('');
+    setLoginMessage(reason || 'Session expired. Please log in again.');
     setScreen('login');
   }
 
@@ -126,30 +243,85 @@ function App() {
     setScreen('import');
   }
 
-  function handleImportFresh() {
-    setScreen('import-fresh');
+  /**
+   * Setup + Import: Create vault then go to import flow.
+   */
+  async function handleSetupAndImport(password: string) {
+    const setupId = Math.random().toString(36).substring(7);
+    console.log(`🎬 [handleSetupAndImport:${setupId}] START`);
+    
+    try {
+      await createVault(password);
+      await markVaultUnlocked();
+      
+      // Cache password in background
+      const resp = await chrome.runtime.sendMessage({
+        type: 'CACHE_VAULT',
+        payload: { masterPassword: password },
+      });
+      
+      if (!resp?.cached) {
+        throw new Error('Failed to cache vault in background');
+      }
+      
+      const emptyVault: VaultData = { keys: [], groups: [] };
+      setVaultData(emptyVault);
+      
+      console.log(`🎬 [handleSetupAndImport:${setupId}] SUCCESS - going to import-fresh`);
+      setScreen('import-fresh');
+    } catch (error) {
+      console.error(`🎬 [handleSetupAndImport:${setupId}] FAILED:`, error);
+      alert('Failed to create vault. Please try again.');
+    }
   }
 
   function handleBackToDashboard() {
     setScreen('dashboard');
   }
 
+  /**
+   * Import complete: Save imported vault via background.
+   */
   async function handleImportComplete(newVault: VaultData) {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'SAVE_VAULT',
+      payload: { vaultData: newVault },
+    });
+    
+    if (resp?.error === 'NOT_AUTHENTICATED') {
+      forceLock();
+      return;
+    }
+    
+    if (resp?.error) {
+      alert(`Failed to save imported data: ${resp.error}`);
+      return;
+    }
+    
     setVaultData(newVault);
-    // Save to storage
-    await saveVault(newVault, masterPassword);
-    // Update background cache
-    await cacheVaultInBackground(newVault, masterPassword);
     setScreen('dashboard');
   }
 
+  /**
+   * Import fresh complete: Save imported vault via background (fresh install path).
+   */
   async function handleImportFreshComplete(newVault: VaultData) {
+    const resp = await chrome.runtime.sendMessage({
+      type: 'SAVE_VAULT',
+      payload: { vaultData: newVault },
+    });
+    
+    if (resp?.error === 'NOT_AUTHENTICATED') {
+      forceLock();
+      return;
+    }
+    
+    if (resp?.error) {
+      alert(`Failed to save imported data: ${resp.error}`);
+      return;
+    }
+    
     setVaultData(newVault);
-    // Save to storage
-    await saveVault(newVault, masterPassword);
-    // Update background cache
-    await cacheVaultInBackground(newVault, masterPassword);
-    // Go directly to dashboard since they have restored keys
     setScreen('dashboard');
   }
 
@@ -157,13 +329,41 @@ function App() {
     setScreen('dashboard');
   }
 
+  /**
+   * Vault update: All writes go through background (which has the password).
+   * If background has lost the password, force lock.
+   */
   async function handleVaultUpdate(updatedVault: VaultData) {
-    setVaultData(updatedVault);
-    // Save to storage
-    const { saveVault } = await import('@/storage/vault');
-    await saveVault(updatedVault, masterPassword);
-    // Update background cache
-    await cacheVaultInBackground(updatedVault, masterPassword);
+    const updateId = Math.random().toString(36).substring(7);
+    console.log(`📝 [handleVaultUpdate:${updateId}] START`);
+    console.log(`📝 [handleVaultUpdate:${updateId}] Incoming - keys: ${updatedVault.keys.length}, groups: ${updatedVault.groups.length}`);
+    
+    try {
+      // Send to background - it uses cached password to encrypt and save
+      const resp = await chrome.runtime.sendMessage({
+        type: 'SAVE_VAULT',
+        payload: { vaultData: updatedVault },
+      });
+      
+      if (resp?.error === 'NOT_AUTHENTICATED') {
+        console.error(`📝 [handleVaultUpdate:${updateId}] NOT_AUTHENTICATED - forcing lock`);
+        forceLock();
+        return;
+      }
+      
+      if (resp?.error) {
+        console.error(`📝 [handleVaultUpdate:${updateId}] Save error: ${resp.error}`);
+        alert('Failed to save changes. Please try again. If this persists, export your vault backup from Settings.');
+        return;
+      }
+      
+      // Only update local display copy after successful save
+      setVaultData(updatedVault);
+      console.log(`📝 [handleVaultUpdate:${updateId}] SUCCESS`);
+    } catch (error) {
+      console.error(`📝 [handleVaultUpdate:${updateId}] FAILED:`, error);
+      alert('Failed to save changes. Please try again.');
+    }
   }
 
   if (screen === 'loading') {
@@ -178,11 +378,11 @@ function App() {
   }
 
   if (screen === 'setup') {
-    return <SetupScreen onSetup={handleSetup} />;
+    return <SetupScreen onSetup={handleSetup} onSetupAndImport={handleSetupAndImport} />;
   }
 
   if (screen === 'login') {
-    return <LoginScreen onLogin={handleLogin} />;
+    return <LoginScreen onLogin={handleLogin} message={loginMessage} />;
   }
 
   if (screen === 'compose' && vaultData) {
@@ -209,7 +409,6 @@ function App() {
         vaultData={vaultData}
         onVaultUpdate={handleVaultUpdate}
         onComplete={handleOnboardingComplete}
-        onImport={handleImportFresh}
       />
     );
   }
@@ -273,4 +472,3 @@ function App() {
 }
 
 export default App;
-

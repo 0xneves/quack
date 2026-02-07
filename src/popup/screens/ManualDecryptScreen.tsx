@@ -85,12 +85,6 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
       </div>
 
       <div className="p-6 space-y-6">
-        <div className="bg-blue-50 border-l-4 border-blue-400 p-4">
-          <p className="text-blue-700 text-sm">
-            Paste an encrypted message (Quack://...) to decrypt it with your groups or identity key.
-          </p>
-        </div>
-
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Encrypted message
@@ -118,7 +112,7 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
               <div>Groups: {groups.map(g => g.emoji ? `${g.emoji} ${g.name}` : g.name).join(', ')}</div>
             )}
             {personalKeys.length > 0 && (
-              <div className="mt-1 text-gray-500">Legacy keys: {personalKeys.map(k => k.name).join(', ')}</div>
+              <div className="mt-1 text-gray-500">Identity keys: {personalKeys.map(k => k.name).join(', ')}</div>
             )}
           </div>
         )}
@@ -130,20 +124,22 @@ function ManualDecryptScreen({ vaultData, onBack }: ManualDecryptScreenProps) {
         )}
 
         {plaintext && (
-          <div className="bg-white rounded-lg shadow p-4 border border-green-200">
-            <div className="flex items-center justify-between mb-2">
+          <div className="bg-white rounded-lg shadow p-4 border border-green-200 overflow-hidden">
+            <div className="mb-2">
               <p className="text-xs uppercase text-gray-500 font-semibold">
                 Decrypted text
               </p>
               {decryptedWith && (
-                <p className="text-xs text-green-600">
+                <p className="text-xs text-green-600 mt-1">
                   ✓ Decrypted with: {decryptedWith}
                 </p>
               )}
             </div>
-            <p className="text-gray-900 whitespace-pre-wrap break-words">
-              {plaintext}
-            </p>
+            <div className="max-h-64 overflow-y-auto">
+              <p className="text-gray-900 whitespace-pre-wrap break-all">
+                {plaintext}
+              </p>
+            </div>
           </div>
         )}
 

@@ -11,6 +11,7 @@ import {
   getPersonalKeys
 } from '@/storage/vault';
 import { createGroupInvitation } from '@/crypto/group';
+import { GROUP_EMOJIS } from '@/utils/constants';
 
 interface ConnectFlowScreenProps {
   vaultData: VaultData;
@@ -21,8 +22,6 @@ interface ConnectFlowScreenProps {
 type Mode = 'choose' | 'alice' | 'bob';
 type AliceStep = 'share-key' | 'add-contact' | 'create-group' | 'invite' | 'done';
 type BobStep = 'add-contact' | 'share-key' | 'wait-invite' | 'done';
-
-const GROUP_EMOJIS = ['🦆', '🔐', '👥', '🏠', '💼', '🎮', '🎵', '📚', '🌟', '💬', '🔒', '🛡️'];
 
 function ConnectFlowScreen({ vaultData, onVaultUpdate, onBack }: ConnectFlowScreenProps) {
   const [mode, setMode] = useState<Mode>('choose');
@@ -77,7 +76,7 @@ function ConnectFlowScreen({ vaultData, onVaultUpdate, onBack }: ConnectFlowScre
     try {
       const contact = await createContactKey(contactName, parsed.publicKey);
       const updatedVault = await addKeyToVault(contact, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setCreatedContact(contact);
       setAliceStep('create-group');
     } catch (error: any) {
@@ -103,7 +102,7 @@ function ConnectFlowScreen({ vaultData, onVaultUpdate, onBack }: ConnectFlowScre
         primaryKey?.fingerprint
       );
       const updatedVault = await addGroupToVault(group, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setCreatedGroup(group);
       setAliceStep('invite');
     } catch (error: any) {
@@ -161,7 +160,7 @@ function ConnectFlowScreen({ vaultData, onVaultUpdate, onBack }: ConnectFlowScre
     try {
       const contact = await createContactKey(contactName, parsed.publicKey);
       const updatedVault = await addKeyToVault(contact, vaultData);
-      onVaultUpdate(updatedVault);
+      await onVaultUpdate(updatedVault);
       setCreatedContact(contact);
       setBobStep('share-key');
     } catch (error: any) {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Quack - Universal Web Encryption",
-  "version": "0.1.0",
+  "name": "Quack!",
+  "version": "1.0.0",
   "description": "Encrypt your messages anywhere on the web with post-quantum cryptography",
   "icons": {
     "16": "icons/icon16.png",
@@ -33,11 +33,15 @@
   "permissions": [
     "storage",
     "clipboardWrite",
-    "activeTab"
+    "activeTab",
+    "sidePanel"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
@@ -49,7 +53,9 @@
         "overlay-decrypt.html",
         "overlay-decrypt.js",
         "overlay-encrypt.html",
-        "overlay-encrypt.js"
+        "overlay-encrypt.js",
+        "bubble-decrypt.html",
+        "bubble-decrypt.js"
       ],
       "matches": ["<all_urls>"]
     }
