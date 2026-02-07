@@ -294,7 +294,7 @@ function SettingsScreen({ vaultData, onBack, onImport }: SettingsScreenProps) {
 
         {/* Version Info */}
         <div className="text-center text-gray-500 text-sm">
-          <p>🦆 Quack! v0.1.0</p>
+          <p>🦆 Quack! v1.0.0</p>
           <p className="mt-1">Quack-quantum encryption for everyone</p>
         </div>
       </div>

@@ -1,10 +1,10 @@
-# Quack - Universal Web Encryption Extension
+# Quack - Universal Web Encryption
 
 [![Tests](https://github.com/0xneves/quack/actions/workflows/test.yml/badge.svg)](https://github.com/0xneves/quack/actions/workflows/test.yml)
 
 > Make the web private without changing platforms.
 
-**Quack** is a browser extension that enables end-to-end encrypted messaging on any website. Communicate privately on YouTube, Twitter, Reddit, or anywhere on the web—without requiring anyone to switch platforms.
+**Quack** is a browser extension that enables end-to-end encrypted messaging on any website. Communicate privately on YouTube, Twitter, Reddit, or anywhere—without requiring anyone to switch platforms.
 
 ## Why Quack?
 
@@ -16,39 +16,28 @@ People want secure communications, but moving friends to new platforms is nearly
 - **No platform switching** — Use existing websites with end-to-end encryption
 - **Quantum-resistant** — Post-quantum cryptography (ML-KEM-768) + AES-256-GCM
 - **Wallet-grade security** — MetaMask-style vault with master password protection
+- **Stealth mode** — Hide who you're messaging from observers
 
 ## Installation
 
 ### From Source (Development)
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/0xneves/quack.git
-   cd quack
-   ```
+```bash
+git clone https://github.com/0xneves/quack.git
+cd quack
+npm install
+npm run build
+```
 
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Build the extension**
-   ```bash
-   npm run build
-   ```
-
-4. **Load in Chrome**
-   - Open `chrome://extensions/`
-   - Enable "Developer mode" (top right)
-   - Click "Load unpacked"
-   - Select the `dist/` folder
+Then load in Chrome:
+1. Open `chrome://extensions/`
+2. Enable "Developer mode" (top right)
+3. Click "Load unpacked"
+4. Select the `dist/` folder
 
 ### Browser Support
 
-- Chrome
-- Edge
-- Brave
-- Any Chromium-based browser
+Chrome, Edge, Brave, and any Chromium-based browser.
 
 ## Quick Start
 
@@ -57,15 +46,16 @@ People want secure communications, but moving friends to new platforms is nearly
 1. Click the Quack extension icon
 2. Create a master password (this protects your vault)
 3. Generate your first encryption key
-4. Share the key with trusted contacts (via Signal, in-person, etc.)
+4. Share your public key with trusted contacts (via Signal, in-person, etc.)
 
 ### Encrypting Messages
 
 1. Type `Quack://` in any text field on any website
 2. A secure compose window opens (isolated from page scripts)
-3. Write your message and select which key to encrypt with
-4. Click "Encrypt & Copy" — the ciphertext is copied to clipboard
-5. Paste into the original field and send
+3. Write your message and select which group to encrypt with
+4. **Optional:** Enable 🥷 Stealth Mode to hide the recipient
+5. Click "Duck it" — the ciphertext is copied to clipboard
+6. Paste into the original field and send
 
 ### Decrypting Messages
 
@@ -93,38 +83,34 @@ Create groups to share encrypted keys with multiple people:
 3. Your private key decrypts the invite → you receive the group key
 4. Now you can encrypt/decrypt group messages
 
-### Backup & Restore
-
-**Export your vault** (Settings → Export):
-- Creates an encrypted backup file
-- Protected with a separate export password (20+ characters)
-- Safe to store in cloud storage
-
-**Import a backup**:
-- Fresh install: "Restore from Backup" on first launch
-- Existing vault: Settings → Import to merge keys
-
 ## Features
 
+### 🥷 Stealth Mode
+
+When enabled, messages are encrypted without revealing the recipient fingerprint. The message format becomes `Quack://_:[iv]:[ciphertext]` — observers can't tell who it's for.
+
+Recipients with Stealth Decryption enabled will try all their keys to decrypt. Slightly slower, but maximum privacy.
+
 ### Secure Compose Mode
+
 Type `Quack://` to open an isolated composer — protected from page analytics, keyloggers, and tracking scripts.
 
 ### Auto-Decryption
+
 Extension automatically detects and decrypts `Quack://` messages using your saved keys.
 
 ### Groups
+
 Create shared encryption groups. Invites are encrypted per-recipient using Kyber key exchange — only the intended contact can accept.
 
 ### Vault Backup
-Export/import your entire vault with AES-256 encryption.
 
-### Wallet-Grade Security
-- Session storage (keys never touch disk while unlocked)
-- Auto-lock after inactivity
-- Memory cleared on lock/browser close
+Export/import your entire vault with AES-256 encryption. Safe to store in cloud storage.
 
-### Performance Optimized
-Smart viewport scanning — only processes visible content. Limits auto-decryption to prevent spam attacks.
+### Security Settings
+
+- **Auto-Lock Timer** — Configure how long the vault stays unlocked (1-999 minutes, or disable entirely)
+- **Stealth Decryption** — Toggle whether to try decrypting stealth messages (brute-force with all your keys)
 
 ## Security
 
@@ -142,6 +128,7 @@ Smart viewport scanning — only processes visible content. Limits auto-decrypti
 - Keys encrypted at rest with master password
 - Session-only storage (keys never written to disk while unlocked)
 - Isolated compose window (no page script access)
+- Stealth mode hides message recipients
 - Spam protection (10 auto-decrypts per viewport)
 
 ### Limitations
@@ -169,46 +156,29 @@ npm run lint        # ESLint
 src/
 ├── background/     # Service worker
 ├── content/        # Content script modules
-│   ├── content-script.ts    # Entry point
-│   ├── dom-scanner.ts       # MutationObserver, scanning
-│   ├── inline-highlight.ts  # Decrypted message display
-│   ├── input-detector.ts    # Quack:// trigger detection
-│   ├── notifications.ts     # Toast messages
-│   ├── overlay-manager.ts   # Secure compose overlay
-│   └── utils.ts
 ├── crypto/         # Cryptographic operations
 │   ├── aes.ts      # AES-256-GCM
 │   ├── kyber.ts    # ML-KEM-768 (post-quantum)
-│   ├── pbkdf2.ts   # Key derivation for vault
+│   ├── pbkdf2.ts   # Key derivation
 │   ├── message.ts  # Message format
 │   └── group.ts    # Group key management
 ├── popup/          # React popup UI
-│   ├── screens/    # Dashboard, Settings, Import, etc.
-│   └── App.tsx
 ├── storage/        # Vault and settings
-│   ├── vault.ts    # Encrypted key storage
-│   ├── settings.ts # Session management
-│   └── export.ts   # Backup/restore
 └── types/          # TypeScript definitions
 ```
 
 ### Testing
 
-54 tests covering:
-- Cryptographic operations (AES, ML-KEM, PBKDF2)
-- Message encoding/decoding
-- Vault operations
-- Export/import flows
-- Group key management
-
 ```bash
 npm test
 ```
 
+54 tests covering cryptographic operations, message encoding/decoding, vault operations, export/import flows, and group key management.
+
 ## Authors
 
-- **Guilherme Neves** ([@0xneves](https://github.com/0xneves)) — Creator
-- **Jarvis Third** ([Jarvis](https://www.moltbook.com/u/Javis_Third)) — Creator
+- **Guilherme Neves** ([@0xneves](https://github.com/0xneves))
+- **Jarvis** ([@Javis_Third](https://www.moltbook.com/u/Javis_Third))
 
 ## License
 
